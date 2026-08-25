@@ -28,6 +28,10 @@ import {
   setMessageMetadata,
 } from './utils.js'
 
+export function cancelStickToBottom(): void {
+  if (stickToBottomOnLoad) setStickToBottomOnLoad(false)
+}
+
 export function renderMessages(active: ActiveSessionView | undefined): void {
   const realMessages = active?.messages || []
   const sessionId = active?.id || ''
@@ -39,7 +43,13 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // Keep forcing the view to the bottom while a newly opened session is still
   // loading: selectSession first pushes an empty state (which would otherwise
   // scroll to the top), then the transcript arrives in a later state push.
-  const shouldStick = stickToBottomOnLoad || sessionChanged || isNearBottom(elements.conversation)
+  // The isNearBottom probe runs against the *pre-render* geometry: file
+  // references (clickable links) and images inside a user message can grow the
+  // transcript asynchronously after render, so a pre-render probe here would
+  // otherwise misclassify "user is reading an older message" as "at bottom"
+  // and yank the view down to the newest bubble.
+  const wasNearBottom = isNearBottom(elements.conversation)
+  const shouldStick = stickToBottomOnLoad || sessionChanged || wasNearBottom
   const previousTop = elements.conversation.scrollTop
   const previousHeight = elements.conversation.scrollHeight
   const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId
@@ -107,8 +117,19 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // actually landed there. Clearing it as soon as messages exist lets the
   // catalog pushes (models/skills/subagents/commands) that follow an open
   // reset the view to the top before the load-scroll applies.
-  if (stickToBottomOnLoad && messages.length > 0 && isNearBottom(elements.conversation)) {
-    setStickToBottomOnLoad(false)
+  //
+  // The release probe must also wait for layout to settle: file references and
+  // images inside a user message are decorated into clickable links during
+  // render, which can grow the transcript *after* this synchronous pass. If we
+  // probed isNearBottom here, a message that starts just below the fold would
+  // measure as "near bottom", clear the pin too early, and then the next
+  // catalog push would strand the user's own bubble at the bottom.
+  if (stickToBottomOnLoad && messages.length > 0) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (stickToBottomOnLoad && isNearBottom(elements.conversation)) setStickToBottomOnLoad(false)
+      })
+    })
   }
   setRenderedSessionId(sessionId)
 }

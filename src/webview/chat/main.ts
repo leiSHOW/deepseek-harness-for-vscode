@@ -24,7 +24,9 @@ import {
 } from './context.js'
 import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
+import { cancelStickToBottom } from './messages.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
+import { isNearBottom } from './utils.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
 
@@ -157,6 +159,12 @@ elements.prompt.addEventListener('keydown', (event) => {
 elements.prompt.addEventListener('blur', () => {
   setTimeout(() => { if (!elements.commandMenu.matches(':hover')) closeCommandMenu() }, 120)
 })
+// A user scrolling away from the newest message (for example to re-read a
+// file reference inside an earlier question) must release the load pin;
+// otherwise the next catalog push would yank the conversation back down.
+elements.conversation.addEventListener('scroll', () => {
+  if (!isNearBottom(elements.conversation)) cancelStickToBottom()
+}, { passive: true })
 document.addEventListener('paste', (event) => {
   const target = event.target
   if (!(target instanceof Node) || !elements.prompt.parentElement?.contains(target)) return
