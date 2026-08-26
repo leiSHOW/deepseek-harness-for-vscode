@@ -8,5 +8,6 @@ export const markdownActions: MarkdownActions = {
   copyCode: (code) => copyText(code),
   defaultCodeLanguage: t('code'),
   copyLabel: t('copy'),
+  copiedLabel: t('copied'),
   copyCodeLabel: (language) => t('copyCode', { language }),
 }

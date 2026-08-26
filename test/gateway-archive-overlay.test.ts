@@ -20,6 +20,7 @@ import { HarnessGatewayService } from '../src/gateway/harness-gateway-service.js
 import type { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
 import type { ConfigurationService } from '../src/config/configuration.js'
 import type { ConnectionSettingsService } from '../src/services/connection-settings-service.js'
+import type { Memento, OutputChannel } from 'vscode'
 
 /**
  * Builds a HarnessGatewayService whose internal client and archive state are
@@ -88,13 +89,13 @@ function createService(options: {
     onDidChange: () => ({ dispose: () => {} }),
   } as unknown as ConnectionSettingsService
 
-  const output = { appendLine: vi.fn() } as unknown as import('vscode').OutputChannel
+  const output = { appendLine: vi.fn() } as unknown as OutputChannel
   const state = new Map<string, unknown>()
   if (options.restored !== undefined) state.set(RESTORED_ARCHIVE_STATE_KEY, [...options.restored])
   const globalState = {
     get: (key: string) => state.get(key),
     update: vi.fn(async (key: string, value: unknown) => { state.set(key, value) }),
-  } as unknown as import('vscode').Memento
+  } as unknown as Memento
 
   const service = new HarnessGatewayService(
     runtime,

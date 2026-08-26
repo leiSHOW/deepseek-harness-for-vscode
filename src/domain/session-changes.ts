@@ -33,12 +33,10 @@ interface PendingChange {
  * and returns with the next conclusion.
  */
 export function projectSessionChanges(entries: readonly HistoryEntry[]): SessionChangesView | undefined {
-  let lastTurnStart: number | undefined
   let lastTurnEnd: number | undefined
   let maxTurn: number | undefined
   for (const { event } of entries) {
-    if (event.type === 'turn/start') lastTurnStart = event.data.turn
-    else if (event.type === 'turn/end') lastTurnEnd = event.data.turn
+    if (event.type === 'turn/end') lastTurnEnd = event.data.turn
     const turn = eventTurn(event.data)
     if (turn !== undefined && (maxTurn === undefined || turn > maxTurn)) maxTurn = turn
   }

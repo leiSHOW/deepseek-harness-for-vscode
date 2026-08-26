@@ -31,6 +31,7 @@ export interface MarkdownActions {
   readonly copyCode: (code: string) => void
   readonly defaultCodeLanguage: string
   readonly copyLabel: string
+  readonly copiedLabel: string
   readonly copyCodeLabel: (language: string) => string
 }
 
@@ -142,7 +143,17 @@ function decorateCodeBlock(pre: HTMLPreElement, actions: MarkdownActions): void 
   copy.className = 'md-copy'
   copy.textContent = actions.copyLabel
   copy.setAttribute('aria-label', actions.copyCodeLabel(language))
-  copy.addEventListener('click', () => actions.copyCode(code.textContent ?? ''))
+  copy.addEventListener('click', () => {
+    actions.copyCode(code.textContent ?? '')
+    copy.textContent = '✓'
+    copy.setAttribute('aria-label', actions.copiedLabel)
+    copy.classList.add('copied')
+    setTimeout(() => {
+      copy.textContent = actions.copyLabel
+      copy.setAttribute('aria-label', actions.copyCodeLabel(language))
+      copy.classList.remove('copied')
+    }, 2_000)
+  })
   header.append(label, copy)
   pre.replaceWith(wrapper)
   wrapper.append(header, pre)
