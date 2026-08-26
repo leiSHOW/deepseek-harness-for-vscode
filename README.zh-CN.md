@@ -4,16 +4,19 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区开发版本 `0.4.8`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.1-rc.2`。
+> 当前为社区开发版本 `0.5.4`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.1-rc.2`。
 
 ## 功能
 
 - **原生 VS Code 工作台**：全部交互都在侧边栏完成；本地 Harness Gateway 只开放回环 API 传输，不再提供或嵌入官方 WebUI。
 - **可分离工作台**：可在编辑器区打开同步的对话面板，需要更大空间时可将其移到另一个 VS Code 窗口。
-- **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）。
+- **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）；切换 DSH 模式时自动 fork 当前会话，上下文完整保留。
 - **Markdown 流式回复**：支持标题、列表、表格、代码块、一键复制、安全外链及可点击跳转的工作区文件引用。
 - **稳定增量渲染**：流式更新保留推理/工具卡展开状态和用户滚动位置。
-- **Claude 风格实时推理**：推理分片到达时自动展开并跟随最新内容，reasoning block 完成后自动收起。
+- **对话步骤时间轴**：对话进行中在转录左侧贯穿一条时间轴脊柱，思考、工具、通知每个步骤落一个蓝点；对话结束后整条时间轴自动消失。
+- **会话自动命名**：新会话根据首条用户消息自动生成单行标题（去 Markdown 符号、超长截断），手动重命名后不再覆盖。
+- **会话更改条**：每轮对话出结论后，在顶部显示该轮最新完成的文件更改摘要；新一轮对话开始即隐藏。
+- **DeepSeek Harness 原生推理**：推理以原生 reasoning 块呈现——分片到达时自动展开并跟随最新内容，块完成后自动收起为摘要行。
 - **编辑器上下文**：选中代码会显示为可移除的上下文卡片；在输入框键入 `@` 可模糊检索并附加工作区文件。
 - **斜杠命令**：支持 Harness 官方命令及 `/model`、`/reasoning`、`/preset` 扩展命令。
 - **Harness 原生能力**：推理过程、工具调用、审批、结构化问题、Todo、Skills、Goal、Plan 和后台任务。
