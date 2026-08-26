@@ -25,6 +25,7 @@ import { isPermissionPresetId, type PermissionPresetId } from '../domain/permiss
 import { isProviderRouteInUse } from '../domain/provider.js'
 import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
+import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
 import {
   RESTORED_ARCHIVE_STATE_KEY,
@@ -96,6 +97,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   private publishScheduled = false
   private selectionGeneration = 0
   private archivedIds = new Set<string>()
+  // Sessions whose title was generated from their first user message. A
+  // session is only auto-named once; after that the title is the user's to
+  // edit, so a later message never overwrites a manual rename.
+  private readonly autoTitledSessions = new Set<string>()
   // Restore overlay is persisted as a whole array via globalState, which is
   // shared across VS Code windows: concurrent archive/restore from two windows
   // is last-write-wins and may overwrite the other window's overlay. This is a
@@ -693,6 +698,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       sessionId: sessionId as SessionId,
       title,
     }))
+    // A manual rename makes the title the user's own: a later first message
+    // must not overwrite it, so the session opts out of auto-titling.
+    this.autoTitledSessions.add(sessionId)
     this.applyTitleProjection(sessionId, renamed.title)
     this.fireChange()
   }
@@ -874,6 +882,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           blank: frame.event.type === 'turn/start' ? false : summary.blank,
         })
       }
+      this.maybeAutoTitle(id, frame.event)
     } else if (frame.type === 'approval/requested' && String(frame.sessionId) === this.activeSessionId) {
       const key = `approval:${String(rpcId)}`
       this.approvals.set(key, {
@@ -1137,6 +1146,32 @@ export class HarnessGatewayService implements vscode.Disposable {
       ? { asOfSeq: -1, values: { title } }
       : { ...existing, values: { ...existing.values, title } }
     this.summaries.set(sessionId, { ...summary, projections })
+  }
+
+  /**
+   * Names a session from its first human message. Harness never projects a
+   * title on its own, so every conversation would otherwise show the fallback
+   * folder name in the history list. Only the first user message counts: once
+   * a session has been auto-named it is left alone, so a manual rename is
+   * never overwritten by a later message.
+   */
+  private maybeAutoTitle(sessionId: string, event: HistoryEntry['event']): void {
+    if (event.type !== 'user/message') return
+    const source = event.data?.source
+    if (source?.kind !== 'user') return
+    // rename() operates on the active session only, so a background session's
+    // message must never rename whatever happens to be active right now.
+    if (sessionId !== this.activeSessionId) return
+    if (this.autoTitledSessions.has(sessionId)) return
+    this.autoTitledSessions.add(sessionId)
+    const title = conversationTitle(event.data.content)
+    if (title === undefined || title === '') return
+    void this.rename(title).catch((cause: unknown) => {
+      // A failed rename must not break the message flow; the session keeps its
+      // fallback title and can be named manually from the header.
+      this.autoTitledSessions.delete(sessionId)
+      this.output.appendLine(vscode.l10n.t('[gateway] Could not auto-title session {0}: {1}', sessionId, errorMessage(cause)))
+    })
   }
 
   private async respond(rpcId: RpcId, value: unknown): Promise<void> {

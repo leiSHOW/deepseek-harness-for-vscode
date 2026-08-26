@@ -19,17 +19,41 @@ interface PendingChange {
 }
 
 /**
- * Accumulates per-file line statistics from the edit-tool events in the
- * session history. A call is staged when it is seen and only booked once its
- * result arrives without an error, so failed or unanswered edits never count.
- * `write`/`create` report added lines only: the previous content is unknown.
- * Raw events remain the source of truth; this function is intentionally pure.
+ * Accumulates per-file line statistics from the edit-tool events of the most
+ * recently concluded turn. A call is staged when it is seen and only booked
+ * once its result arrives without an error, so failed or unanswered edits
+ * never count. `write`/`create` report added lines only: the previous content
+ * is unknown. Raw events remain the source of truth; this function is
+ * intentionally pure.
+ *
+ * The summary follows the conversation, not the whole session: only the last
+ * concluded turn's edits are shown. While a new round has started but not yet
+ * produced a `turn/end`, the previous round's summary stays hidden, so the
+ * bar appears when a conclusion lands, disappears when the next round begins,
+ * and returns with the next conclusion.
  */
 export function projectSessionChanges(entries: readonly HistoryEntry[]): SessionChangesView | undefined {
+  let lastTurnStart: number | undefined
+  let lastTurnEnd: number | undefined
+  let maxTurn: number | undefined
+  for (const { event } of entries) {
+    if (event.type === 'turn/start') lastTurnStart = event.data.turn
+    else if (event.type === 'turn/end') lastTurnEnd = event.data.turn
+    const turn = eventTurn(event.data)
+    if (turn !== undefined && (maxTurn === undefined || turn > maxTurn)) maxTurn = turn
+  }
+  // No concluded turn yet (blank session, or streaming in progress) → the bar
+  // stays hidden until a conclusion actually lands.
+  if (lastTurnEnd === undefined) return undefined
+  // A newer round has started but has not concluded yet: hide the previous
+  // round's summary until this round's own conclusion arrives.
+  if (maxTurn !== undefined && maxTurn > lastTurnEnd) return undefined
+
   const pending = new Map<string, PendingChange>()
   const byPath = new Map<string, { added: number; removed: number }>()
 
   for (const { event } of entries) {
+    if (eventTurn(event.data) !== lastTurnEnd) continue
     if (event.type === 'tool/call') {
       const change = toolFileChange(event.data.name, event.data.arguments)
       if (change !== undefined) pending.set(String(event.data.callId), change)
@@ -93,4 +117,10 @@ function countLines(text: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+/** Reads the owning turn number when the event data carries one (UserMessage does not). */
+function eventTurn(data: unknown): number | undefined {
+  if (!isRecord(data)) return undefined
+  return typeof data.turn === 'number' ? data.turn : undefined
 }

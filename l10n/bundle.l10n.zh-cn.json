@@ -210,6 +210,7 @@
   "[gateway] DSH mode is fixed once a conversation starts; the forked session keeps preset \"{0}\" and carries the previous context.": "[gateway] 对话开始后 DSH 模式即固定；派生会话保留预设“{0}”并携带之前的上下文。",
   "DeepSeek Harness: DSH mode is fixed once a conversation starts, so the new session carries your context under preset \"{0}\".": "DeepSeek Harness：对话开始后 DSH 模式即固定，因此新会话将在预设“{0}”下携带您的上下文。",
   "[gateway] Could not fork the session to carry context ({0}); opening a fresh session instead.": "[gateway] 无法派生会话以携带上下文（{0}）；改为打开全新会话。",
+  "[gateway] Could not auto-title session {0}: {1}": "[gateway] 无法为会话 {0} 自动生成标题：{1}",
   "{model} · {mode} · Effort {effort}": "{model} · {mode} · 推理 {effort}",
   "Context {used} / {limit} · {percent}% used": "上下文 {used} / {limit} · 已使用 {percent}%",
   "Model": "模型",
