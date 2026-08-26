@@ -12,6 +12,8 @@ interface StreamState {
   tokens?: number
   /** Monotonic live estimate so the counter only grows while streaming. */
   labelTokens?: number
+  /** Whether the reasoning content keeps auto-scrolling to its own bottom. */
+  follow?: boolean
 }
 
 /** Rough live token estimate for streamed reasoning text (≈4 chars/token). */
@@ -124,8 +126,22 @@ export class StreamingMessageComponent {
     let state = this.streams.get(target)
     if (state === undefined) {
       target.textContent = ''
-      state = { rendered: '', target: text, frame: undefined, ...(tokens === undefined ? {} : { tokens }) }
+      state = { rendered: '', target: text, frame: undefined, follow: true, ...(tokens === undefined ? {} : { tokens }) }
       this.streams.set(target, state)
+      // The reasoning content auto-follows its own stream, but an intentional
+      // scroll-up inside the card must win: once the reader moves off the
+      // bottom the card stops being yanked down, and resumes only after they
+      // scroll back to its very bottom.
+      if (target.classList.contains('reasoning-content') && target.dataset.followBound === undefined) {
+        target.dataset.followBound = 'true'
+        target.addEventListener('scroll', () => {
+          const current = this.streams.get(target)
+          if (current === undefined) return
+          const atBottom = target.scrollHeight - target.scrollTop - target.clientHeight <= 4
+          if (atBottom) current.follow = true
+          else if (current.follow !== false) current.follow = false
+        }, { passive: true })
+      }
     } else {
       state.target = text
       if (tokens !== undefined) state.tokens = tokens
@@ -142,7 +158,7 @@ export class StreamingMessageComponent {
       // instead of showing raw Markdown source until the block completes.
       this.options.renderMarkdown(target, state.rendered)
       if (target.classList.contains('reasoning-content')) {
-        target.scrollTop = target.scrollHeight
+        if (state.follow !== false) target.scrollTop = target.scrollHeight
         this.updateStreamingLabel(target, state)
       }
       this.options.onStreamFrame()

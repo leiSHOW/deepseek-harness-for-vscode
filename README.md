@@ -4,7 +4,7 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is a community-maintained `0.5.4` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.1-rc.2` package.
+> This is a community-maintained `0.5.5` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.1-rc.2` package.
 
 ## Features
 
@@ -16,6 +16,7 @@ A native VS Code coding-agent extension powered by [DeepSeek Harness](https://gi
 - **Conversation step timeline** — while a turn is in flight, a timeline spine runs down the left corridor of the transcript with a dot on every thinking, tool, and notice step; the rail disappears once the conversation ends.
 - **Session auto-naming** — new conversations get a concise single-line title derived from the first message; manual renames are never overwritten.
 - **Session changes bar** — a compact summary of the file edits from the latest finished turn appears after each conclusion and hides while the next turn is running.
+- **Reader-friendly streaming** — while a turn streams you can scroll up through earlier messages freely; auto-follow yields to your scroll and only resumes at the very bottom. The finished conclusion is set off by a divider between the thinking and the final answer (or above the message when there is no thinking).
 - **DeepSeek Harness-native reasoning** — thinking is presented in a native reasoning block that opens as deltas stream, follows the newest content, and collapses to a summary row once the block completes.
 - **Editor context** — selected code appears as a removable context card; type `@` to fuzzy-search and attach workspace files without leaving the composer.
 - **Slash commands** — use official Harness commands plus `/model`, `/reasoning`, and `/preset` extension commands.

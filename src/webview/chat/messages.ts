@@ -3,6 +3,7 @@ import { renderMarkdown } from '../markdown.js'
 import {
   components,
   elements,
+  followStream,
   messageSignatures,
   node,
   optimisticBubbles,
@@ -49,7 +50,7 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // otherwise misclassify "user is reading an older message" as "at bottom"
   // and yank the view down to the newest bubble.
   const wasNearBottom = isNearBottom(elements.conversation)
-  const shouldStick = stickToBottomOnLoad || sessionChanged || wasNearBottom
+  const shouldStick = stickToBottomOnLoad || sessionChanged || (followStream && wasNearBottom)
   const previousTop = elements.conversation.scrollTop
   const previousHeight = elements.conversation.scrollHeight
   const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId

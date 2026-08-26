@@ -1,6 +1,6 @@
 import DOMPurify, { type Config } from 'dompurify'
 import MarkdownIt from 'markdown-it'
-import { fileExtension, findFileReferences, parseFileReference, type FileReference } from './file-reference.js'
+import { fileExtension, findFileReferences, looksLikeWebUrl, parseFileReference, type FileReference } from './file-reference.js'
 
 const markdown = new MarkdownIt({
   html: false,
@@ -59,7 +59,7 @@ export function renderMarkdown(target: HTMLElement, source: string, actions: Mar
       decorateFileLink(link, reference, actions)
       return
     }
-    const url = safeExternalUrl(href)
+    const url = safeExternalUrl(href) ?? schemeLessWebUrl(href)
     if (url === undefined) {
       link.removeAttribute('href')
       return
@@ -163,6 +163,16 @@ function safeExternalUrl(raw: string): string | undefined {
   try {
     const url = new URL(raw)
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Upgrades scheme-less web-URL anchors (e.g. `docs.example.com/guide`) to https. */
+function schemeLessWebUrl(raw: string): string | undefined {
+  if (!looksLikeWebUrl(raw)) return undefined
+  try {
+    return new URL(`https://${raw}`).href
   } catch {
     return undefined
   }

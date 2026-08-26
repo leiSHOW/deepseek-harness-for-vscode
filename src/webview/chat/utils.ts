@@ -44,6 +44,11 @@ export function isNearBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 100
 }
 
+/** True only when the scroller is essentially pinned to its very bottom. */
+export function isAtBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 4
+}
+
 export function scrollConversationToBottom(): void {
   const conversation = elements.conversation
   // Bypass `scroll-behavior: smooth` so the jump lands in the same frame; a

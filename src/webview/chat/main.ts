@@ -11,11 +11,13 @@ import { resizePrompt } from './composer-core.js'
 import {
   components,
   elements,
+  followStream,
   menuState,
   payload,
   post,
   searchTimer,
   setCurrentDetail,
+  setFollowStream,
   setMenuState,
   setPayload,
   setSearchResults,
@@ -26,9 +28,44 @@ import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
 import { cancelStickToBottom } from './messages.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
-import { isNearBottom } from './utils.js'
+import { isAtBottom, isNearBottom } from './utils.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
+
+// Streaming auto-follow yields to an intentional scroll-up: once the reader
+// moves away from the bottom the view stops being yanked down on every stream
+// frame, and only resumes following after they scroll all the way back to the
+// very bottom. Re-arming on the 100px "near bottom" probe would re-latch the
+// latch right after a small wheel-up and cause the up/down twitching.
+elements.conversation.addEventListener('wheel', (event) => {
+  if (event.deltaY < 0) {
+    setFollowStream(false)
+  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.conversation)) {
+    setFollowStream(true)
+  }
+}, { passive: true })
+
+let touchAnchorY: number | undefined
+elements.conversation.addEventListener('touchstart', (event) => {
+  touchAnchorY = event.touches[0]?.clientY
+}, { passive: true })
+elements.conversation.addEventListener('touchmove', (event) => {
+  const y = event.touches[0]?.clientY
+  if (touchAnchorY === undefined || y === undefined) return
+  // A finger moving down reveals earlier content (scrolls up).
+  if (y > touchAnchorY) setFollowStream(false)
+  touchAnchorY = y
+}, { passive: true })
+elements.conversation.addEventListener('scroll', () => {
+  if (isAtBottom(elements.conversation)) {
+    setFollowStream(true)
+  } else if (followStream) {
+    // A scroll that left the bottom while following can only be the reader
+    // dragging the scrollbar up; our own position restore only runs when the
+    // view is already not following.
+    setFollowStream(false)
+  }
+}, { passive: true })
 
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'pluginState') {
