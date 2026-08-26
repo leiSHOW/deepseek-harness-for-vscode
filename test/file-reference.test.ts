@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { fileExtension, findFileReferences, parseFileReference } from '../src/webview/file-reference.js'
+import { fileExtension, findFileReferences, looksLikeWebUrl, parseFileReference } from '../src/webview/file-reference.js'
 
 describe('parseFileReference', () => {
   it('parses relative, absolute, Windows, and line-anchor references', () => {
@@ -16,6 +16,32 @@ describe('parseFileReference', () => {
     expect(parseFileReference('reasoning-process')).toBeUndefined()
     expect(findFileReferences('Release v0.4.4 is ready.')).toEqual([])
   })
+
+  it('keeps scheme-less web domains out of file references', () => {
+    expect(parseFileReference('www.example.com')).toBeUndefined()
+    expect(parseFileReference('docs.example.com/guide')).toBeUndefined()
+    expect(parseFileReference('example.com/docs')).toBeUndefined()
+  })
+
+  it('ignores root-level URL fragments such as /guide', () => {
+    expect(parseFileReference('/guide')).toBeUndefined()
+  })
+})
+
+describe('looksLikeWebUrl', () => {
+  it('flags domain-shaped values', () => {
+    expect(looksLikeWebUrl('www.example.com')).toBe(true)
+    expect(looksLikeWebUrl('docs.example.com/guide')).toBe(true)
+    expect(looksLikeWebUrl('example.com/docs')).toBe(true)
+    expect(looksLikeWebUrl('https://example.com')).toBe(true)
+  })
+
+  it('leaves local file paths and bare source files alone', () => {
+    expect(looksLikeWebUrl('src/app.ts')).toBe(false)
+    expect(looksLikeWebUrl('package.json')).toBe(false)
+    expect(looksLikeWebUrl('file.tar.gz')).toBe(false)
+    expect(looksLikeWebUrl('.gitignore')).toBe(false)
+  })
 })
 
 describe('findFileReferences', () => {
@@ -26,6 +52,10 @@ describe('findFileReferences', () => {
       { path: 'src/ui/view.ts', line: 27, start: 7, end: 24 },
       { path: 'package.json', start: 38, end: 50 },
     ])
+  })
+
+  it('does not surface web-URL fragments as file references', () => {
+    expect(findFileReferences('参考 docs.example.com/guide 与 example.com 文档')).toEqual([])
   })
 })
 

@@ -344,6 +344,22 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .message.user { justify-items: end; }
 .message-label { color: var(--vscode-descriptionForeground); font-size: 10px; }
 .message.user .message-label { padding-right: 5px; }
+/* The finished conclusion gets a clear break so the final answer reads as a
+   distinct result. When the message carries its own reasoning block the
+   divider sits between the thinking and the answer text; a conclusion without
+   reasoning separates from the tool activity above the message instead. The
+   copy footer only exists on the finished conclusion, so these target exactly
+   the moment the turn ends. */
+.message:has(.message-copy-footer):not(:has(.reasoning-block)) {
+  margin-top: 6px;
+  padding-top: 11px;
+  border-top: 1px solid var(--vscode-widget-border);
+}
+.message:has(.message-copy-footer) .message-body > .reasoning-block + .content-block {
+  margin-top: 10px;
+  padding-top: 11px;
+  border-top: 1px solid var(--vscode-widget-border);
+}
 .message-copy-footer {
   display: inline-flex;
   align-items: center;

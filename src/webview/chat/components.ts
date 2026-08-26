@@ -11,7 +11,7 @@ import { createWorkDurationComponent } from '../work-duration/component.js'
 import { formatWorkDuration } from '../work-duration/format.js'
 import { renderComposer } from './composer-core.js'
 import { closeCommandMenu } from './command-menu.js'
-import { components, elements, payload, post, t } from './context.js'
+import { components, elements, followStream, payload, post, t } from './context.js'
 import { markdownActions } from './markdown-actions.js'
 import { toggleHistory } from './sessions.js'
 import { formatTokenCount, isNearBottom } from './utils.js'
@@ -76,7 +76,7 @@ components.streamingMessage = new StreamingMessageComponent({
     : t('thoughtForWithTokens', { duration: formatWorkDuration(elapsed), tokens: formatTokenCount(tokens) }),
   renderMarkdown: (target, source) => renderMarkdown(target, source, markdownActions),
   onStreamFrame: () => {
-    if (isNearBottom(elements.conversation)) elements.conversation.scrollTop = elements.conversation.scrollHeight
+    if (followStream && isNearBottom(elements.conversation)) elements.conversation.scrollTop = elements.conversation.scrollHeight
   },
 })
 

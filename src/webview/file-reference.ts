@@ -14,7 +14,7 @@ const FILE_REFERENCE_PATTERN = /(?:(?:(?:[a-z]:)?[\\/]|\.{1,2}[\\/]|[\w@+-]+[\\/
 /** Parses model-produced workspace references such as src/app.ts:12:4. */
 export function parseFileReference(raw: string): FileReference | undefined {
   const decoded = decodeReference(raw.trim())
-  if (decoded === undefined || decoded === '' || hasExternalScheme(decoded)) return undefined
+  if (decoded === undefined || decoded === '' || hasExternalScheme(decoded) || looksLikeWebUrl(decoded)) return undefined
   const unwrapped = unwrap(decoded.replace(/^@/u, ''))
   const hash = /^(.*)#L(\d+)(?:C(\d+))?(?:-L\d+(?:C\d+)?)?$/iu.exec(unwrapped)
   if (hash !== null) return result(hash[1], hash[2], hash[3])
@@ -59,11 +59,46 @@ function result(path: string | undefined, line: string | undefined, column: stri
 
 function looksLikeFile(value: string): boolean {
   if (value === '' || /[\n\r\t]/u.test(value) || value.endsWith('/')) return false
+  // A root-level single segment (e.g. `/guide`) is a URL fragment left over
+  // from prose, not a workspace file reference.
+  if (value.startsWith('/') && !value.slice(1).includes('/') && !/\.\w+$/u.test(value)) return false
   const basename = value.split(/[\\/]/u).pop() ?? ''
   return value.includes('/')
     || value.includes('\\')
     || /^\.?[\w@+-]+\.[a-z][a-z0-9._-]{0,15}$/iu.test(basename)
     || /^(?:Dockerfile|Makefile|Procfile|README|LICENSE)$/iu.test(basename)
+}
+
+/** Bare-name suffixes that make a value a local file rather than a web host. */
+const NON_WEB_FILE_EXTENSIONS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'css', 'scss', 'sass', 'less', 'html', 'htm',
+  'md', 'markdown', 'mdown', 'py', 'pyw', 'rs', 'go', 'java', 'kt', 'kts', 'c', 'h', 'cc', 'cpp',
+  'hpp', 'cs', 'fs', 'rb', 'php', 'vue', 'svelte', 'astro', 'yml', 'yaml', 'toml', 'ini', 'cfg',
+  'conf', 'xml', 'svg', 'sh', 'bash', 'zsh', 'fish', 'bat', 'cmd', 'ps1', 'txt', 'log', 'sql',
+  'graphql', 'gql', 'proto', 'lock', 'sum', 'map', 'env', 'editorconfig', 'gitignore', 'npmrc',
+  'gz', 'zip', 'tar', 'rar', '7z', 'bz2', 'xz', 'tgz', 'deb', 'rpm', 'dmg', 'exe', 'msi',
+])
+
+/**
+ * Detects web-URL-shaped values (https://…, www.example.com, docs.example.com/guide)
+ * so they are never misread as workspace file references. A dotted first
+ * segment whose final label is letters is treated as a host, except for bare
+ * `name.ext` values with a known source/archive extension (`package.json`,
+ * `app.ts`, `file.tar.gz`) which stay file references.
+ */
+export function looksLikeWebUrl(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === '' || normalized.includes('\\')) return false
+  if (normalized.includes('://') || normalized.startsWith('//') || normalized.startsWith('www.')) return true
+  const first = normalized.split('/')[0] ?? ''
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/u.test(first)) return false
+  const tld = first.split('.').pop() ?? ''
+  if (!/^[a-z]{2,24}$/u.test(tld)) return false
+  if (!normalized.includes('/')) {
+    const lastDot = normalized.lastIndexOf('.')
+    if (lastDot > 0 && NON_WEB_FILE_EXTENSIONS.has(normalized.slice(lastDot + 1))) return false
+  }
+  return true
 }
 
 function positiveInteger(value: string | undefined): number | undefined {

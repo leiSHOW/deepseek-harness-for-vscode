@@ -108,6 +108,12 @@ export function setStickToBottomOnLoad(value: boolean): void {
   stickToBottomOnLoad = value
 }
 
+/** Whether streaming updates should keep pinning the view to the bottom. */
+export let followStream = true
+export function setFollowStream(value: boolean): void {
+  followStream = value
+}
+
 export let pastedImages: readonly PastedImage[] = []
 export function setPastedImages(value: readonly PastedImage[]): void {
   pastedImages = value
