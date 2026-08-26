@@ -283,11 +283,13 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .empty-state h2 { margin: 15px 0 6px; font-size: 15px; }
 .empty-state p { max-width: 270px; margin: 0; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.5; }
 .messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-/* Kimi-style step timeline: a spine runs down the left corridor of the
-   transcript, each tool/notice step sits on it with a dot, and the dot of the
-   step in flight pulses. */
-.messages:has(.tool-item, .notice) { position: relative; padding-left: 22px; }
-.messages:has(.tool-item, .notice)::before {
+/* Kimi-style step timeline: while a conversation is in flight a spine runs
+   down the left corridor of the transcript. Thinking, tool and notice steps
+   each sit on it with a dot, and the dot of the step in flight pulses. Once
+   the turn ends the rail (and its dots) disappear again from the finished
+   transcript. */
+.messages.timeline-live:has(.tool-item, .notice, .reasoning-block) { position: relative; padding-left: 22px; }
+.messages.timeline-live:has(.tool-item, .notice, .reasoning-block)::before {
   content: '';
   position: absolute;
   top: 4px;
@@ -296,8 +298,10 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   width: 1px;
   background: color-mix(in srgb, var(--vscode-descriptionForeground) 42%, transparent);
 }
-.tool-item, .notice { position: relative; }
-.tool-item::before, .notice::before {
+.messages.timeline-live .tool-item,
+.messages.timeline-live .notice { position: relative; }
+.messages.timeline-live .tool-item::before,
+.messages.timeline-live .notice::before {
   content: '';
   position: absolute;
   top: 10px;
@@ -307,7 +311,28 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   background: var(--vscode-charts-blue, #4d8cff);
   border-radius: 50%;
 }
-.tool-item:has(> .tool-card.running)::before {
+.messages.timeline-live .tool-item:has(> .tool-card.running)::before {
+  animation: timeline-dot-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--vscode-charts-blue, #4d8cff) 65%, transparent);
+}
+/* The thinking dot rides the message body instead of the reasoning block:
+   the block is `overflow: hidden` for its rounded-corner clipping, which
+   would clip a dot drawn outside its box. The body has no overflow, its left
+   edge sits on the spine corridor, and the thinking step is the first block
+   of the bubble, so the dot lands on the thinking row and pulses while it is
+   still streaming. */
+.messages.timeline-live .message-body:has(.reasoning-block) { position: relative; }
+.messages.timeline-live .message-body:has(.reasoning-block)::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: -17px;
+  width: 7px;
+  height: 7px;
+  background: var(--vscode-charts-blue, #4d8cff);
+  border-radius: 50%;
+}
+.messages.timeline-live .message-body:has(.reasoning-block.running)::before {
   animation: timeline-dot-pulse 1.2s ease-in-out infinite;
   box-shadow: 0 0 6px color-mix(in srgb, var(--vscode-charts-blue, #4d8cff) 65%, transparent);
 }
@@ -820,7 +845,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   display: grid;
   gap: 3px;
   border-top: 1px solid var(--vscode-widget-border);
-  background: color-mix(in srgb, var(--vscode-editorWidget-background) 94%, var(--effort-color) 6%);
+  background: var(--vscode-editorWidget-background);
   transition: background-color 160ms ease;
 }
 .effort-control[data-effort='off'] { --effort-color: #8b8b93; }
@@ -831,7 +856,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .effort-heading { min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .effort-heading::before { content: '◫'; margin-right: 3px; color: var(--vscode-descriptionForeground); font-size: 16px; line-height: 1; }
 .effort-heading span { color: var(--vscode-foreground); font-size: 12px; font-weight: 600; }
-.effort-heading strong { color: var(--effort-color); font-size: 11px; font-weight: 500; transition: color 160ms ease; }
+.effort-heading strong { color: var(--vscode-descriptionForeground); font-size: 11px; font-weight: 500; transition: color 160ms ease; }
 .effort-heading strong::before { content: '('; }
 .effort-heading strong::after { content: ')'; }
 .effort-slider-row { width: min(112px, 48%); height: 26px; position: relative; flex: none; }
@@ -1287,6 +1312,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 /* Markdown-rendered content blocks (media/chat.js renderMarkdown) */
 .md-copy { padding: 1px 8px; font-size: 11px; color: var(--vscode-descriptionForeground); background: transparent; border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35)); border-radius: 3px; cursor: pointer; }
 .md-copy:hover { background: var(--vscode-toolbar-hoverBackground); }
+.md-copy.copied { color: var(--vscode-testing-iconPassed, #89d185); border-color: color-mix(in srgb, var(--vscode-testing-iconPassed, #89d185) 45%, transparent); }
 .md-file-link { color: var(--vscode-textLink-foreground); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
 .md-file-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration-style: solid; }
 .md-file-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }

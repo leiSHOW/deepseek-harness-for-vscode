@@ -532,15 +532,47 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /**
    * Promotes one still-pending queued prompt into the current turn, so it is
-   * answered immediately instead of after the running turn completes.
+   * answered immediately instead of after the running turn completes. When the
+   * running turn was just cancelled the host refuses steering (an idle agent
+   * accepts no steer and returns `steer-unavailable`); in that case withdraw
+   * the still-pending text item and re-send its content so the message still
+   * goes out instead of being stranded in the queue dock. Items carrying image
+   * attachments keep the original error, because their content is a reference
+   * that cannot be re-submitted through the prompt contract.
    */
   async steerQueued(itemId: string): Promise<void> {
     const sessionId = this.requireActiveSession()
-    valueOf(await this.requireClient().sessions.updateQueue({
+    const client = this.requireClient()
+    const response = await client.sessions.updateQueue({
       sessionId: sessionId as SessionId,
       itemId: itemId as MessageId,
       action: { kind: 'steer' },
-    }))
+    })
+    if (response.result.ok) return
+    if (response.result.error.code !== 'steer-unavailable') {
+      throw new Error(response.result.error.message)
+    }
+    const item = this.queue.find((candidate) => candidate.id === itemId)
+    if (item === undefined || item.message.content.some((block) => block.type === 'image')) {
+      throw new Error(response.result.error.message)
+    }
+    const text = item.message.content
+      .filter((block): block is { readonly type: 'text'; readonly text: string } => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    if (text.trim() === '') throw new Error(response.result.error.message)
+    const removed = await client.sessions.updateQueue({
+      sessionId: sessionId as SessionId,
+      itemId: itemId as MessageId,
+      action: { kind: 'remove' },
+    })
+    if (!removed.result.ok) throw new Error(removed.result.error.message)
+    await client.sessions.prompt({
+      sessionId: sessionId as SessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text }],
+      clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
   }
 
   /** Withdraws one still-pending queued prompt before the agent claims it. */

@@ -55,6 +55,9 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId
   const conclusionId = latestConclusionId(messages)
   const running = active?.running ?? false
+  // The step timeline spine only exists while a conversation is in flight;
+  // once the turn ends the rail disappears from the finished transcript.
+  elements.messages.classList.toggle('timeline-live', running)
   const existing = new Map(Array.from(elements.messages.children).map((child) => [(child as HTMLElement).dataset.messageId ?? '', child as HTMLElement]))
   const retained = new Set<string>()
   let cursor = elements.messages.firstElementChild
