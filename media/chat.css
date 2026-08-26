@@ -283,7 +283,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .empty-state h2 { margin: 15px 0 6px; font-size: 15px; }
 .empty-state p { max-width: 270px; margin: 0; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.5; }
 .messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-/* Kimi-style step timeline: while a conversation is in flight a spine runs
+/* Step timeline: while a conversation is in flight a spine runs
    down the left corridor of the transcript. Thinking, tool and notice steps
    each sit on it with a dot, and the dot of the step in flight pulses. Once
    the turn ends the rail (and its dots) disappear again from the finished
