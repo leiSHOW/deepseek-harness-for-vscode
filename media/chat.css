@@ -283,6 +283,38 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .empty-state h2 { margin: 15px 0 6px; font-size: 15px; }
 .empty-state p { max-width: 270px; margin: 0; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.5; }
 .messages { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+/* Kimi-style step timeline: a spine runs down the left corridor of the
+   transcript, each tool/notice step sits on it with a dot, and the dot of the
+   step in flight pulses. */
+.messages:has(.tool-item, .notice) { position: relative; padding-left: 22px; }
+.messages:has(.tool-item, .notice)::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--vscode-descriptionForeground) 42%, transparent);
+}
+.tool-item, .notice { position: relative; }
+.tool-item::before, .notice::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: -17px;
+  width: 7px;
+  height: 7px;
+  background: var(--vscode-charts-blue, #4d8cff);
+  border-radius: 50%;
+}
+.tool-item:has(> .tool-card.running)::before {
+  animation: timeline-dot-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--vscode-charts-blue, #4d8cff) 65%, transparent);
+}
+@keyframes timeline-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
 .message { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .message.user { justify-items: end; }
 .message-label { color: var(--vscode-descriptionForeground); font-size: 10px; }
