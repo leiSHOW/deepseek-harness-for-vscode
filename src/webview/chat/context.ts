@@ -114,6 +114,12 @@ export function setFollowStream(value: boolean): void {
   followStream = value
 }
 
+/** Whether this window has a workspace folder open (history is scoped per project). */
+export let workspaceFolderOpen = false
+export function setWorkspaceFolderOpen(value: boolean): void {
+  workspaceFolderOpen = value
+}
+
 export let pastedImages: readonly PastedImage[] = []
 export function setPastedImages(value: readonly PastedImage[]): void {
   pastedImages = value

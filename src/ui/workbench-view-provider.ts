@@ -52,6 +52,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       void this.postToHosts({ type: 'pluginState', snapshot })
     }), editorSelection.onDidChange((selection) => {
       void this.postToHosts({ type: 'editorSelection', selection })
+    }), vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      // Re-scope the session history to the newly opened project without
+      // restarting the window.
+      void this.publishState().catch(() => undefined)
     })]
   }
 
@@ -147,6 +151,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         state,
         configuration: this.configuration.get(),
         connectionSettings,
+        workspaceFolderOpen: vscode.workspace.workspaceFolders?.[0] !== undefined,
         fallbackOptions: {
           sources: connectionSettings.providers.map((provider) => ({ id: provider.id, label: provider.name })),
           models: MODEL_OPTIONS.map(localizedOption),

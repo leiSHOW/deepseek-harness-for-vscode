@@ -14,6 +14,7 @@ import {
   selectorSignature,
   setSelectorSignature,
   t,
+  workspaceFolderOpen,
 } from './context.js'
 import { formatRelativeTime } from './utils.js'
 
@@ -79,8 +80,14 @@ export function renderSessions(): void {
     } else if (showingArchived && query !== '') {
       // Archived rows exist but none match the search query.
       fragment.append(node('p', 'muted-empty', t('noMatchingArchivedConversations')))
+    } else if (showingArchived) {
+      fragment.append(node('p', 'muted-empty', t('noArchivedConversations')))
+    } else if (query === '') {
+      // No conversations belong to this window's scope — either the project
+      // has no history yet, or no project is open at all.
+      fragment.append(node('p', 'muted-empty', t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')))
     } else {
-      fragment.append(node('p', 'muted-empty', showingArchived ? t('noArchivedConversations') : t('noMatchingConversations')))
+      fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
     }
   }
   elements.sessionList.replaceChildren(fragment)

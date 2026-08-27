@@ -20,6 +20,7 @@ import type {
 import type { PromptContentPart } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ConfigurationService } from '../config/configuration.js'
+import { buildCarryOverMessage, type CarryTurn } from '../domain/carry-over.js'
 import { projectionContextPressure } from '../domain/context-pressure.js'
 import { isPermissionPresetId, type PermissionPresetId } from '../domain/permissions.js'
 import { isProviderRouteInUse } from '../domain/provider.js'
@@ -27,6 +28,7 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
+import { sameWorkspacePath } from '../domain/workspace-scope.js'
 import {
   RESTORED_ARCHIVE_STATE_KEY,
   isEffectivelyArchived,
@@ -89,6 +91,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   private subagents: SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
   private projections: Record<string, unknown> = {}
+  /** Armed by a mode switch; consumed by the next prompt in its target session. */
+  private pendingCarryOver: { targetSessionId: string; message: string } | undefined
   private readonly labels = localizedWorkbenchLabels()
   private commands: readonly CommandEntry[] = projectionCommands(undefined, this.labels)
   private startTask: Promise<void> | undefined
@@ -206,8 +210,9 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
+    const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
     const partitioned = partitionSessionLists(
-      this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels)),
+      scoped.map((summary) => sessionListItem(summary, this.labels)),
       this.archivedIds,
       this.restoredIds,
     )
@@ -302,56 +307,46 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /**
-   * Opens the "new session" a DSH-mode switch produces by forking the current
-   * one, so the previous context is carried over instead of lost.
-   *
-   * Harness locks a session's Agent Preset once it has a conversation and
-   * cannot seed a fresh session from another transcript, so the fork inherits
-   * the source preset; the requested preset is only applied when the fork is
-   * still blank (source had no completed turn). The effective preset is
-   * reported so the composer stays consistent with the session that opened.
+   * Condenses the active conversation right before a mode switch opens a
+   * fresh session: the digest rides as a hidden lead block on the next send
+   * (see domain/carry-over), so the new mode keeps the previous context.
    */
-  private async forkCarryingPreset(requestedPreset: string): Promise<string> {
+  private buildCarryOverForActiveSession(fromPreset: string, toPreset: string): string | undefined {
     const sourceId = this.requireActiveSession()
-    try {
-      const forked = valueOf(await this.requireClient().sessions.fork({
-        sessionId: sourceId as SessionId,
-      }))
-      await this.refreshSessionList()
-      await this.selectSession(String(forked.sessionId))
-      const summary = this.summaries.get(String(forked.sessionId))
-      if (summary?.blank === true) {
-        await this.selectPreset(requestedPreset)
-      } else {
-        // The fork already has a conversation, so its preset is fixed to the
-        // source's. Keep the configuration aligned with what actually opened.
-        const effectivePreset = summary?.agentPreset ?? this.configuration.get().agentPreset
-        await this.configuration.setAgentPresetIfKnown(effectivePreset)
-        this.output.appendLine(vscode.l10n.t(
-          '[gateway] DSH mode is fixed once a conversation starts; the forked session keeps preset "{0}" and carries the previous context.',
-          effectivePreset,
-        ))
-        void vscode.window.showInformationMessage(vscode.l10n.t(
-          'DeepSeek Harness: DSH mode is fixed once a conversation starts, so the new session carries your context under preset "{0}".',
-          effectivePreset,
-        ))
+    const turns: CarryTurn[] = []
+    let toolCalls = 0
+    for (const { event } of this.entries) {
+      if (event.type === 'user/message') {
+        const source = event.data.source
+        if (source.kind !== 'user') continue
+        turns.push({ role: 'user', text: carryEventText(event.data.content) })
+      } else if (event.type === 'assistant/message') {
+        turns.push({ role: 'assistant', text: carryEventText(event.data.message.content) })
+      } else if (event.type === 'tool/call') {
+        toolCalls += 1
       }
-      return String(forked.sessionId)
-    } catch (cause) {
-      // No completed turn to fork from (or the fork failed): fall back to the
-      // previous behavior so switching DSH mode still opens a session.
-      this.output.appendLine(vscode.l10n.t(
-        '[gateway] Could not fork the session to carry context ({0}); opening a fresh session instead.',
-        errorMessage(cause),
-      ))
-      return await this.createSession(requestedPreset)
     }
+    return buildCarryOverMessage({ sourceSessionId: sourceId, fromPreset, toPreset, turns, skippedToolCalls: toolCalls })
+  }
+
+  /** Peeks an armed carry-over payload without consuming it; cleared only after a successful send. */
+  private peekCarryOverFor(sessionId: string): string | undefined {
+    if (this.pendingCarryOver?.targetSessionId !== sessionId) return undefined
+    return this.pendingCarryOver.message
+  }
+
+  private clearCarryOver(sessionId: string): void {
+    if (this.pendingCarryOver?.targetSessionId === sessionId) this.pendingCarryOver = undefined
   }
 
   /**
    * Commits composer choices immediately before the next prompt. Harness locks
-   * an Agent Preset after a conversation starts, so changing DSH mode creates a
-   * fresh session while model/reasoning changes remain session-local.
+   * an Agent Preset after a conversation starts, so changing DSH mode opens a
+   * fresh session under the requested preset while model/reasoning changes
+   * remain session-local. A digest of the previous conversation is attached to
+   * the next outgoing message as a hidden lead block (collapsed into a context
+   * card in the transcript), keeping continuity without forking into a locked
+   * old preset.
    */
   async applyPromptConfiguration(selection: PromptConfiguration): Promise<void> {
     if (this.subagentAddress !== undefined) {
@@ -367,14 +362,18 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (transition === 'select-blank-session') {
         await this.selectPreset(selection.agentPreset)
       } else if (transition === 'create-session') {
-        // Harness fixes a session's Agent Preset once it has a conversation,
-        // and it cannot seed a new session from another transcript
-        // (session.create has no seed; session.fork inherits the source
-        // preset). Fork the current session so the new session carries the
-        // full previous context, then attempt the requested preset on the
-        // fork — the runtime keeps the source preset for a conversation that
-        // has already started.
-        sessionId = await this.forkCarryingPreset(selection.agentPreset)
+        // Snapshot the conversation BEFORE createSession() selects the fresh
+        // session and resets the entry cache.
+        const carried = this.buildCarryOverForActiveSession(currentPreset, selection.agentPreset)
+        sessionId = await this.createSession(selection.agentPreset)
+        if (carried !== undefined) {
+          this.pendingCarryOver = { targetSessionId: sessionId, message: carried }
+          this.output.appendLine(vscode.l10n.t(
+            '[gateway] Mode switch opened session {0} under preset "{1}"; the previous context rides with the next message.',
+            sessionId,
+            selection.agentPreset,
+          ))
+        }
       } else {
         await this.configuration.setAgentPresetIfKnown(selection.agentPreset)
       }
@@ -386,7 +385,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     const normalized = query.trim()
     if (normalized === '') return []
     const result = valueOf(await this.requireClient().sessions.search({ query: normalized }))
-    return result.items.map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
+    return result.items
+      .filter((item) => {
+        const summary = this.summaries.get(String(item.sessionId))
+        return summary !== undefined && this.inCurrentWorkspace(summary)
+      })
+      .map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
   }
 
   async selectSession(sessionId: string): Promise<void> {
@@ -506,7 +510,14 @@ export class HarnessGatewayService implements vscode.Disposable {
       await this.executeHostCommand(normalized)
       return
     }
+    // A mode-switch digest rides as its own leading text block so the
+    // transcript can collapse it (see the webview carry-over card) while the
+    // model still reads it before the attachments and the user's message. The
+    // payload stays armed until the ordinary-session send succeeds, so a
+    // failed submit can retry without losing the context.
+    const carried = this.subagentAddress === undefined ? this.peekCarryOverFor(sessionId) : undefined
     const content: PromptContentPart[] = [
+      ...(carried === undefined ? [] : [{ type: 'text' as const, text: carried }]),
       ...attachments.map(attachmentPart),
       ...(normalized === '' ? [] : [{ type: 'text' as const, text: normalized }]),
     ]
@@ -517,6 +528,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         content,
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }))
+      this.clearCarryOver(sessionId)
     } else {
       if (this.subagentAddress.mode === 'one-shot') throw new Error(vscode.l10n.t('One-shot sub-agent history is read-only.'))
       if (content.some((part) => part.type === 'image')) {
@@ -1104,7 +1116,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private visibleSummaries(): SessionSummary[] {
-    return this.orderedSummaries().filter((summary) => !this.isArchived(String(summary.sessionId)))
+    return this.orderedSummaries().filter((summary) => !this.isArchived(String(summary.sessionId)) && this.inCurrentWorkspace(summary))
   }
 
   private async leaveArchivedSelection(): Promise<void> {
@@ -1125,6 +1137,21 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private orderedSummaries(): SessionSummary[] {
     return [...this.summaries.values()].sort((left, right) => right.updatedAt - left.updatedAt)
+  }
+
+  /** The first workspace folder open in this window, or undefined when none is. */
+  private currentWorkspaceCwd(): string | undefined {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  }
+
+  /**
+   * Whether a session belongs to the project currently open in this window.
+   * With no workspace folder open there is no project to scope by, so every
+   * session is visible; otherwise only sessions recorded against that exact
+   * folder are shown (history follows the project, nothing is deleted).
+   */
+  private inCurrentWorkspace(summary: SessionSummary): boolean {
+    return sameWorkspacePath(summary.cwd, this.currentWorkspaceCwd())
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
@@ -1342,6 +1369,19 @@ function mergeHistory(base: readonly HistoryEntry[], live: readonly HistoryEntry
   for (const entry of base) bySeq.set(entry.event.seq, entry)
   for (const entry of live) bySeq.set(entry.event.seq, entry)
   return [...bySeq.values()].sort((left, right) => left.event.seq - right.event.seq)
+}
+
+/** Joins one message's content blocks into plain text for the mode-switch carry-over digest. */
+function carryEventText(blocks: readonly unknown[]): string {
+  const output: string[] = []
+  for (const block of blocks) {
+    if (typeof block !== 'object' || block === null || !('type' in block)) continue
+    const record = block as Record<string, unknown>
+    if ((record.type === 'text' || record.type === 'reasoning') && typeof record.text === 'string') {
+      output.push(record.text)
+    }
+  }
+  return output.join('\n').trim()
 }
 
 function subagentView(entry: SubagentListEntry): SubagentView {

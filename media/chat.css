@@ -512,6 +512,13 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 }
 @keyframes activity-verb-pulse { 50% { opacity: .5; } }
 .context-card pre { margin: 4px 7px 6px; white-space: pre-wrap; font: inherit; font-size: 11px; }
+/* Mode-switch carry-over card: collapsed by default so the previous
+   conversation stays out of sight until explicitly inspected. */
+.carried-context { margin-bottom: 4px; opacity: .92; }
+.carried-context summary { font-style: italic; color: var(--vscode-descriptionForeground); }
+.carried-context-body { max-height: 260px; margin: 0; padding: 8px; overflow: auto; background: var(--vscode-editor-background); font-size: 11px; line-height: 1.5; }
+.carried-context-body > :first-child { margin-top: 0; }
+.carried-context-body > :last-child { margin-bottom: 0; }
 .work-duration {
   margin-top: 5px;
   display: flex;

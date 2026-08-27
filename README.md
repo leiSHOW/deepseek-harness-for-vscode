@@ -4,13 +4,13 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is a community-maintained `0.5.5` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.1-rc.2` package.
+> This is a community-maintained `0.5.6` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.1-rc.2` package.
 
 ## Features
 
 - **Native VS Code workbench** — all interaction happens in the sidebar; the local Harness Gateway exposes only the loopback API transport, while the official WebUI is neither served nor embedded.
 - **Detachable workbench** — open the same synchronized conversation UI in an editor-area panel and move it to another VS Code window when more space is needed.
-- **Complete session workflow** — persistent history, create, switch, rename, fork, resume, archive/restore, export, and import sessions (official DSH ZIP, ChatGPT export ZIP, and other agent transcripts via `dsh-chat-import`); changing the DSH mode forks the current session so its context carries over.
+- **Complete session workflow** — persistent history, create, switch, rename, fork, resume, archive/restore, export, and import sessions (official DSH ZIP, ChatGPT export ZIP, and other agent transcripts via `dsh-chat-import`); changing the DSH mode opens a fresh session in the new mode and carries the previous context as a hidden digest attached to your next message.
 - **Streaming Markdown** — headings, lists, tables, code blocks, copy controls, safe external links, and clickable workspace file references.
 - **Stable incremental rendering** — streamed updates preserve disclosure state and the reader's scroll position.
 - **Conversation step timeline** — while a turn is in flight, a timeline spine runs down the left corridor of the transcript with a dot on every thinking, tool, and notice step; the rail disappears once the conversation ends.

@@ -1,4 +1,5 @@
 import type { ActiveSessionView, ChatItem } from '../../domain/workbench-state.js'
+import { splitCarriedBlocks } from '../../domain/carry-over.js'
 import { renderMarkdown } from '../markdown.js'
 import {
   components,
@@ -150,7 +151,11 @@ function messageImageCount(item: ChatItem): number {
   return (item.blocks || []).filter((block) => block.kind === 'image').length
 }
 
-/** Drops optimistic bubbles whose real user/message has now surfaced (FIFO by content). */
+/** Drops optimistic bubbles whose real user/message has now surfaced (FIFO by content).
+ *
+ * A mode-switch carry-over payload rides inside the real message as a leading
+ * hidden block, so reconciliation compares against the visible remainder only.
+ */
 function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
   if (optimisticBubbles.length === 0) return
   const matched = new Set<string>()
@@ -160,7 +165,7 @@ function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
       !matched.has(message.id)
       && message.kind === 'message'
       && message.role === 'user'
-      && messageText(message) === bubble.text
+      && visibleUserText(message) === bubble.text
       && messageImageCount(message) === bubble.imageCount
     )
     const found = index === -1 ? undefined : realMessages[index]
@@ -168,6 +173,12 @@ function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
     else matched.add(found.id)
   }
   setOptimisticBubbles(pending)
+}
+
+/** User-typed text of one chat item with any carried-over lead block stripped. */
+function visibleUserText(item: ChatItem): string {
+  const blocks = item.kind === 'message' && item.role === 'user' ? splitCarriedBlocks(item.blocks ?? []).rest : item.blocks ?? []
+  return blocks.filter((block) => block.kind === 'text').map((block) => block.text).join('\n').trim()
 }
 
 function latestConclusionId(messages: readonly ChatItem[]): string | undefined {
@@ -213,8 +224,15 @@ function renderMessage(item: ChatItem, conclusionId: string | undefined, running
   const article = node('article', `message ${item.role || ''}`)
   const label = node('div', 'message-label', item.role === 'user' ? t('you') : 'DeepSeek')
   article.append(label)
+  // A mode-switch carry-over payload rides as leading hidden text blocks:
+  // collapse them into one context card so the previous conversation stays
+  // out of sight but remains inspectable.
+  const carried = item.role === 'user' ? splitCarriedBlocks(item.blocks ?? []) : undefined
+  if (carried !== undefined && carried.carriedText !== '') {
+    article.append(renderCarriedContextCard(carried.carriedText, String(item.id)))
+  }
   const body = node('div', 'message-body')
-  components.streamingMessage.render(body, item)
+  components.streamingMessage.render(body, carried === undefined ? item : { ...item, blocks: carried.rest })
   article.append(body)
   // Every DeepSeek bubble carries its worked-time footer (it ticks while the
   // turn runs and freezes when done). The copy button belongs only to the
@@ -388,5 +406,16 @@ function renderContext(item: ChatItem): HTMLElement {
   details.append(node('summary', '', item.title || t('context')))
   const text = (item.blocks || []).map((block) => block.text).join('\n')
   details.append(node('pre', '', text))
+  return details
+}
+
+/** Collapsed transcript card holding the previous conversation's digest. */
+function renderCarriedContextCard(text: string, messageId: string): HTMLElement {
+  const details = node('details', `context-card carried-context`) as HTMLDetailsElement
+  details.dataset.disclosureKey = `carry-${messageId}`
+  details.append(node('summary', '', t('carriedContext')))
+  const body = node('div', 'carried-context-body markdown-body')
+  renderMarkdown(body, text, markdownActions)
+  details.append(body)
   return details
 }

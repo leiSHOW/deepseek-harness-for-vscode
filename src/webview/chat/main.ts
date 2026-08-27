@@ -22,6 +22,7 @@ import {
   setPayload,
   setSearchResults,
   setSearchTimer,
+  setWorkspaceFolderOpen,
   vscode,
 } from './context.js'
 import { renderDetails } from './details.js'
@@ -92,6 +93,7 @@ window.addEventListener('message', (event) => {
     return
   }
   if (event.data?.type !== 'state') return
+  setWorkspaceFolderOpen(event.data.workspaceFolderOpen === true)
   setPayload(event.data)
   render()
 })
