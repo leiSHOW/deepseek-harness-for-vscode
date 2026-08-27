@@ -61,7 +61,7 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .connection.error::before { background: var(--vscode-testing-iconFailed, #d20f39); }
 .connection.reconnecting::before, .connection.starting::before { background: var(--vscode-charts-yellow, #df8e1d); }
 
-.session-heading { min-width: 0; gap: 3px; padding-left: 2px; }
+.session-heading { min-width: 0; gap: 3px; padding-left: 2px; flex-wrap: wrap; row-gap: 2px; }
 .title-button {
   min-width: 0;
   flex: 1;
@@ -143,24 +143,30 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .session-row-wrap:hover .session-row.active,
 .session-row-wrap:focus-within .session-row.active { background: var(--vscode-list-activeSelectionBackground); }
 .session-row-wrap { position: relative; }
-.session-row.has-archive-action { padding-right: 30px; }
-.session-archive-action {
+.session-row.has-archive-action { padding-right: 76px; }
+/* One horizontal action strip per row, revealed on row hover/focus. */
+.session-row-actions {
   position: absolute;
-  top: 4px;
+  top: 2px;
   right: 4px;
+  display: flex;
+  gap: 2px;
   opacity: 0;
   pointer-events: none;
 }
-.session-row-wrap:hover .session-archive-action,
-.session-row-wrap:focus-within .session-archive-action {
+.session-row-wrap:hover .session-row-actions,
+.session-row-wrap:focus-within .session-row-actions {
   opacity: 1;
   pointer-events: auto;
 }
-/* Keyboard reachability: the action is opacity:0 until hover/focus-within,
+.session-archive-action { position: static; }
+.session-archive-action.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+/* Keyboard reachability: the strip is opacity:0 until hover/focus-within,
    so a tab-focused action must be visibly revealed without a hover state. */
 .session-archive-action:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
   border-radius: 6px;
@@ -868,6 +874,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .effort-control[data-effort='low'] { --effort-color: #3f9be0; }
 .effort-control[data-effort='high'] { --effort-color: #9b7cff; }
 .effort-control[data-effort='max'] { --effort-color: #e8784f; }
+.effort-control[data-effort='auto'] { --effort-color: #2bb3a0; }
 .effort-main { min-height: 26px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .effort-heading { min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .effort-heading::before { content: '◫'; margin-right: 3px; color: var(--vscode-descriptionForeground); font-size: 16px; line-height: 1; }
@@ -876,6 +883,23 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .effort-heading strong::before { content: '('; }
 .effort-heading strong::after { content: ')'; }
 .effort-slider-row { width: min(112px, 48%); height: 26px; position: relative; flex: none; }
+.effort-auto {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+.effort-auto.active {
+  background: color-mix(in srgb, #2bb3a0 22%, var(--vscode-editorWidget-background));
+  border-color: #2bb3a0;
+  color: #2bb3a0;
+}
+.effort-auto:disabled { opacity: .5; cursor: default; }
 #effort-slider { position: absolute; top: 0; left: 0; z-index: 2; width: 100%; height: 20px; margin: 0; padding: 0 5px; appearance: none; -webkit-appearance: none; background: linear-gradient(to right, color-mix(in srgb, var(--effort-color) 74%, var(--vscode-editorWidget-background)) 0 var(--effort-progress), color-mix(in srgb, var(--effort-color) 13%, var(--vscode-editorWidget-background)) var(--effort-progress) 100%); border: 1px solid color-mix(in srgb, var(--effort-color) 34%, var(--vscode-widget-border)); border-radius: 999px; cursor: grab; transition: --effort-progress 240ms cubic-bezier(.3, .9, .3, 1), background-color 160ms ease, border-color 160ms ease; }
 #effort-slider:active { cursor: grabbing; }
 #effort-slider:disabled { cursor: default; }
@@ -940,6 +964,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   color: transparent;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--flourish-color) 70%, transparent));
 }
+.effort-flourish-auto { --flourish-color: #2bb3a0; color: #3cc9b5; text-shadow: 0 0 12px color-mix(in srgb, var(--flourish-color) 65%, transparent); }
 @keyframes effort-flourish-pop {
   0% { opacity: 0; transform: translateY(8px) scale(1.65); }
   22% { opacity: 1; transform: translateY(0) scale(1); }
@@ -1249,6 +1274,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .configuration-toggle[data-effort='low'] { --toggle-effort: #3f9be0; }
 .configuration-toggle[data-effort='high'] { --toggle-effort: #9b7cff; }
 .configuration-toggle[data-effort='max'] { --toggle-effort: #e8784f; }
+.configuration-toggle[data-effort='auto'] { --toggle-effort: #2bb3a0; }
 .configuration-toggle-copy { min-width: 0; display: block; line-height: 1.2; text-align: left; }
 /* strong/small are block boxes so the model name can size the pill; the name
    shows in full at normal widths and only ellipsises in the narrow
@@ -1445,3 +1471,33 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   white-space: nowrap;
 }
 .compact-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+
+.session-stats {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  margin-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-mark {
+  margin-left: 4px;
+  font-size: 10px;
+}
+
+.session-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.session-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  white-space: nowrap;
+}

@@ -24,7 +24,7 @@ export interface ComposerConfigurationInput {
   readonly fallbackReasoning: readonly ConfigurationOption[]
 }
 
-export type EffortTone = 'off' | 'low' | 'high' | 'max'
+export type EffortTone = 'off' | 'low' | 'high' | 'max' | 'auto'
 
 export interface ComposerConfigurationSnapshot {
   readonly input: ComposerConfigurationInput
@@ -35,6 +35,8 @@ export interface ComposerConfigurationSnapshot {
   readonly reasoning: readonly ConfigurationOption[]
   readonly effort: ConfigurationOption
   readonly effortIndex: number
+  /** Whether the session uses the extension-side auto reasoning layer. */
+  readonly autoActive: boolean
   readonly effortTone: EffortTone
   readonly dirty: boolean
   readonly modeStartsNewConversation: boolean

@@ -25,6 +25,8 @@ export function composerConfigurationInput(
 ): ComposerConfigurationInput | undefined {
   const active = payload.state.active
   if (active === undefined) return undefined
+  // The auto reasoning layer is a separate intent, never a provider tier id:
+  // reasoning options stay exactly the provider's own offered set.
   const fallbackReasoning = payload.fallbackOptions.reasoning.map(copyOption)
   const fallbackSources = payload.fallbackOptions.sources.map(copyOption)
   const liveSources = active.models.map((model) => ({ id: model.provider, label: model.providerName }))
@@ -84,6 +86,7 @@ export function composerConfigurationInput(
       model: active.model?.model ?? payload.configuration.model,
       reasoningEffort: active.model?.reasoningEffort ?? payload.configuration.reasoningEffort,
       agentPreset: active.agentPreset ?? payload.configuration.agentPreset,
+      ...(active.effortIntent === 'auto' ? { reasoningIntent: 'auto' as const } : {}),
     },
     sources,
     models,

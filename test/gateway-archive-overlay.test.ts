@@ -189,4 +189,15 @@ describe('HarnessGatewayService archive overlay', () => {
     service.installArchivedIds(['active'], true)
     expect(service.isArchived('active')).toBe(true)
   })
+
+  it('archives a blank draft so unwanted new-conversation stubs can be hidden', async () => {
+    const { service, client } = createService({ archived: [] })
+    service.summaries.set('blank-draft', { blank: true })
+    client.workspace.archiveSession.mockResolvedValue({ result: { ok: true, value: { archivedSessionIds: ['blank-draft'] } } })
+
+    await service.archiveSession('blank-draft')
+
+    expect(client.workspace.archiveSession).toHaveBeenCalledWith({ sessionId: 'blank-draft' })
+    expect(service.isArchived('blank-draft')).toBe(true)
+  })
 })

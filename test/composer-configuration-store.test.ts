@@ -76,6 +76,24 @@ describe('composer configuration store', () => {
     expect(effortTone('low', 1, 4)).toBe('low')
     expect(effortTone('high', 2, 4)).toBe('high')
     expect(effortTone('max', 3, 4)).toBe('max')
+    expect(effortTone('auto', 4, 5)).toBe('auto')
+  })
+
+  it('tracks the auto reasoning intent separately from the tier selection', () => {
+    const store = new ComposerConfigurationStore()
+    store.update(input())
+
+    const auto = store.selectAuto()
+    expect(auto?.autoActive).toBe(true)
+    expect(auto?.selection.reasoningIntent).toBe('auto')
+    expect(auto?.effortTone).toBe('auto')
+    expect(auto?.dirty).toBe(true)
+
+    // Picking a concrete tier on the slider leaves the auto layer.
+    const tier = store.selectReasoning(1)
+    expect(tier?.autoActive).toBe(false)
+    expect(tier?.selection.reasoningIntent).toBeUndefined()
+    expect(tier?.selection.reasoningEffort).toBe('high')
   })
 
   it('switches source without duplicating the two model choices', () => {

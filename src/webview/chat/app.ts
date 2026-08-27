@@ -34,6 +34,7 @@ export function render(): void {
   elements.keyBanner.classList.toggle('hidden', state.hasApiKey)
   elements.sessionTitle.textContent = active?.title || t('newConversation')
   elements.sessionTitle.disabled = !active || !!active.parentSessionId
+  renderSessionStats(active)
   elements.backParent.classList.toggle('hidden', !active?.parentSessionId)
   elements.fork.disabled = !active || active.blank
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)
@@ -79,6 +80,11 @@ export function sendPrompt(): void {
   if (!text && pastedImages.length === 0) return
   const configuration = components.composerConfiguration.selection()
   components.composerConfiguration.markSubmitted()
+  // While a turn is running a prompt is queued: applying the staged model or
+  // effort now would mutate the running turn's remaining steps, so the
+  // configuration travels only when this prompt starts a fresh turn (the
+  // host re-checks the running state before committing it).
+  const queued = payload?.state?.active?.running === true
   post('sendPrompt', {
     text,
     mode: 'queue',
@@ -88,7 +94,7 @@ export function sendPrompt(): void {
       data,
       ...(name === undefined ? {} : { name }),
     })),
-    ...(configuration === undefined ? {} : { configuration }),
+    ...(configuration === undefined || queued ? {} : { configuration }),
   })
   components.editorContext.markSubmitted()
   // Optimistic echo: render the user bubble immediately so the conversation
@@ -116,4 +122,44 @@ export function sendPrompt(): void {
   clearPastedImages()
   resizePrompt()
   if (optimisticBubbles.length > 0) renderMessages(payload?.state.active)
+}
+
+/**
+ * Renders a compact per-session activity line in the header: turn count,
+ * cumulative duration, and (when the harness reports it) a token total. No
+ * pricing is ever shown here — only raw counts and elapsed time.
+ */
+function renderSessionStats(active: HarnessWorkbenchState['active']): void {
+  const stats = active?.stats
+  if (stats === undefined) {
+    elements.sessionStats.textContent = ''
+    elements.sessionStats.classList.add('hidden')
+    return
+  }
+  const tokenUsage = active?.tokenUsage
+  const totalTokens = tokenUsage === undefined ? 0
+    : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
+      + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
+  const parts = [
+    `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
+    `⏱ ${formatDuration(stats.durationMs)}`,
+    ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
+  ]
+  elements.sessionStats.textContent = parts.join(' · ')
+  elements.sessionStats.classList.remove('hidden')
+}
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
+  if (totalSeconds < 60) return `${totalSeconds}${t('durationSecondShort')}`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds === 0
+    ? `${minutes}${t('durationMinuteShort')}`
+    : `${minutes}${t('durationMinuteShort')} ${seconds}${t('durationSecondShort')}`
+}
+
+function formatTokens(count: number): string {
+  if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(count)
 }

@@ -54,6 +54,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private readonly effortValue: HTMLElement
   private readonly effortSlider: HTMLInputElement
   private readonly effortTicks: HTMLElement
+  private readonly effortAuto: HTMLButtonElement
   private readonly hint: HTMLElement
 
   constructor(private readonly options: ComponentOptions) {
@@ -74,6 +75,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.effortValue = requiredElement(document, 'effort-value')
     this.effortSlider = requiredElement(document, 'effort-slider')
     this.effortTicks = requiredElement(document, 'effort-ticks')
+    this.effortAuto = requiredElement(document, 'effort-auto')
     this.hint = requiredElement(document, 'configuration-hint')
     this.bindEvents()
   }
@@ -160,6 +162,11 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       const direction = event.deltaY > 0 ? 1 : -1
       this.changeReasoning(Number(this.effortSlider.value) + direction)
     }, { passive: false })
+    this.effortAuto.addEventListener('click', () => {
+      const snapshot = this.store.selectAuto()
+      this.render(snapshot)
+      this.options.onChange()
+    })
     this.options.document.addEventListener('pointerdown', (event) => {
       const target = event.target
       if (!(target instanceof Node) || this.panel.classList.contains('hidden')) return
@@ -373,14 +380,19 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   }
 
   private renderEffort(snapshot: ComposerConfigurationSnapshot): void {
+    const { translate: t } = this.options
     this.effortControl.dataset.effort = snapshot.effortTone
-    this.effortValue.textContent = snapshot.effort.label
+    const effortLabel = snapshot.autoActive ? t('effortAuto') : snapshot.effort.label
+    this.effortValue.textContent = effortLabel
+    this.effortAuto.classList.toggle('active', snapshot.autoActive)
+    this.effortAuto.setAttribute('aria-pressed', String(snapshot.autoActive))
+    this.effortAuto.disabled = !snapshot.input.editable
     this.effortSlider.min = '0'
     this.effortSlider.max = String(Math.max(0, snapshot.reasoning.length - 1))
     this.effortSlider.step = '1'
     this.effortSlider.value = String(snapshot.effortIndex)
     this.effortSlider.disabled = snapshot.reasoning.length <= 1 || !snapshot.input.editable
-    this.effortSlider.setAttribute('aria-valuetext', snapshot.effort.label)
+    this.effortSlider.setAttribute('aria-valuetext', effortLabel)
     const fraction = snapshot.reasoning.length <= 1
       ? 0
       : snapshot.effortIndex / (snapshot.reasoning.length - 1)

@@ -27,6 +27,15 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
+import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortIntent, type PromptEffortSignals } from '../domain/session-effort.js'
+import {
+  metaSortRank,
+  readSessionMeta,
+  setTags,
+  togglePinned,
+  type SessionMeta,
+} from '../domain/session-meta.js'
+import { projectSessionStats, projectionSessionStats } from '../domain/session-stats.js'
 import {
   RESTORED_ARCHIVE_STATE_KEY,
   isEffectivelyArchived,
@@ -110,6 +119,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   private restoredIds = new Set<string>()
   private archiveRevision = 0
   private archiveBaselineLoaded = false
+  /** Per-session reasoning-effort intent ('auto' is an extension-side layer). */
+  private readonly effortIntents = new Map<string, EffortIntent>()
+  /** Locally-owned session metadata (pin / favorite / tags). */
+  private readonly metaBySession = new Map<string, SessionMeta>()
 
   readonly onDidChange = this.changeEmitter.event
 
@@ -121,6 +134,8 @@ export class HarnessGatewayService implements vscode.Disposable {
     private readonly globalState: vscode.Memento,
   ) {
     this.restoredIds = new Set(readRestoredArchiveIds(globalState.get(RESTORED_ARCHIVE_STATE_KEY)))
+    loadEffortIntents(globalState.get(EFFORT_INTENT_STATE_KEY), this.effortIntents)
+    loadSessionMeta(globalState.get(SESSION_META_STATE_KEY), this.metaBySession)
     this.runtimeSubscription = runtime.onDidChangeState((state) => {
       if (state.phase === 'error') {
         this.phase = 'error'
@@ -207,7 +222,11 @@ export class HarnessGatewayService implements vscode.Disposable {
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
     const partitioned = partitionSessionLists(
-      this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels)),
+      this.orderedSummaries().map((summary) => {
+  const item = sessionListItem(summary, this.labels)
+  const meta = this.metaFor(String(summary.sessionId))
+  return meta === undefined ? item : { ...item, meta }
+}),
       this.archivedIds,
       this.restoredIds,
     )
@@ -219,6 +238,8 @@ export class HarnessGatewayService implements vscode.Disposable {
     const tokenUsage = projectionTokenUsage(this.projections.tokenUsage)
     const contextPressure = projectionContextPressure(this.projections.contextPressure)
     const changes = projectSessionChanges(this.entries)
+    const stats = projectionSessionStats(this.projections.sessionStats) ?? projectSessionStats(this.entries)
+    const effortIntent = activeSummary === undefined ? undefined : this.effortIntents.get(String(activeSummary.sessionId))
     const active = activeSummary === undefined ? undefined : {
       id: String(activeSummary.sessionId),
       title: sessionListItem(activeSummary, this.labels).title,
@@ -255,6 +276,8 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(tokenUsage === undefined ? {} : { tokenUsage }),
       ...(contextPressure === undefined ? {} : { contextPressure }),
       ...(changes === undefined ? {} : { changes }),
+      ...(stats.turns > 0 ? { stats } : {}),
+      ...(effortIntent === undefined ? {} : { effortIntent }),
     }
     return {
       phase: this.phase,
@@ -353,7 +376,7 @@ export class HarnessGatewayService implements vscode.Disposable {
    * an Agent Preset after a conversation starts, so changing DSH mode creates a
    * fresh session while model/reasoning changes remain session-local.
    */
-  async applyPromptConfiguration(selection: PromptConfiguration): Promise<void> {
+  async applyPromptConfiguration(selection: PromptConfiguration, signals?: PromptEffortSignals): Promise<void> {
     if (this.subagentAddress !== undefined) {
       throw new Error(vscode.l10n.t('Sub-agent configuration is fixed by its parent session.'))
     }
@@ -379,7 +402,10 @@ export class HarnessGatewayService implements vscode.Disposable {
         await this.configuration.setAgentPresetIfKnown(selection.agentPreset)
       }
     }
-    await this.selectModel(selection.provider, selection.model, selection.reasoningEffort)
+    // 'auto' is an extension-side selection layer carried as a separated intent:
+    // the concrete tier in `selection.reasoningEffort` is what the UI shows.
+    const intent = selection.reasoningIntent === 'auto' ? selection.reasoningIntent : selection.reasoningEffort
+    await this.selectModel(selection.provider, selection.model, intent, true, signals)
   }
 
   async searchSessions(query: string): Promise<{ readonly sessionId: string; readonly snippet: string }[]> {
@@ -635,20 +661,36 @@ export class HarnessGatewayService implements vscode.Disposable {
     await this.selectSession(String(parent))
   }
 
-  async selectModel(provider: string, model: string, reasoningEffort?: string, persist = true): Promise<void> {
+  async selectModel(provider: string, model: string, reasoningEffort?: string, persist = true, signals?: PromptEffortSignals): Promise<void> {
     if (this.subagentAddress !== undefined) throw new Error(vscode.l10n.t('Sub-agents use the model selected when they were created.'))
     const sessionId = this.requireActiveSession()
+    // 'auto' is an extension-side selection layer: it is translated to one of
+    // the model's own tiers here, never forwarded to the harness verbatim.
+    let resolved: string | undefined
+    if (reasoningEffort !== undefined && reasoningEffort !== '') {
+      resolved = resolveEffortIntent(reasoningEffort as EffortIntent, this.reasoningEffortOptions(provider, model), this.autoSignals(signals))
+    }
     const selected = valueOf(await this.requireClient().sessions.selectModel({
       sessionId: sessionId as SessionId,
       provider,
       model,
-      ...(reasoningEffort === undefined || reasoningEffort === '' ? {} : { reasoningEffort }),
+      ...(resolved === undefined ? {} : { reasoningEffort: resolved }),
     }))
     if (this.models !== undefined) this.models = { ...this.models, current: selected.selected }
+    // Commit the per-session intent only after the harness accepted the
+    // change, so a failed RPC cannot leave a stale intent behind.
+    if (reasoningEffort !== undefined && reasoningEffort !== '') {
+      this.effortIntents.set(sessionId, isAutoEffort(reasoningEffort) ? 'auto' : reasoningEffort as EffortIntent)
+      try {
+        await this.persistEffortIntents()
+      } catch (cause) {
+        this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session reasoning intent: {0}', errorMessage(cause)))
+      }
+    }
     if (persist) {
       await this.configuration.setProviderIfConfigured(provider)
       await this.configuration.setModelIfKnown(model)
-      if (reasoningEffort !== undefined) await this.configuration.setReasoningEffortIfKnown(reasoningEffort)
+      if (resolved !== undefined) await this.configuration.setReasoningEffortIfKnown(resolved)
     }
     this.fireChange()
   }
@@ -657,6 +699,39 @@ export class HarnessGatewayService implements vscode.Disposable {
     const current = this.models?.current
     if (current === undefined) throw new Error(vscode.l10n.t('The model catalog for the current session has not loaded yet.'))
     await this.selectModel(current.provider, current.model, reasoningEffort)
+  }
+
+  async toggleSessionPin(sessionId: string): Promise<void> {
+    await this.updateSessionMeta(sessionId, (meta) => togglePinned(meta))
+  }
+
+  async setSessionTags(sessionId: string, tags: readonly string[]): Promise<void> {
+    await this.updateSessionMeta(sessionId, (meta) => setTags(meta, tags))
+  }
+
+  /**
+   * Persists the candidate meta before committing it to memory: a failed write
+   * must not leave a ghost state that the UI would echo as if it had worked.
+   */
+  private async updateSessionMeta(sessionId: string, update: (meta: SessionMeta | undefined) => SessionMeta): Promise<void> {
+    if (!this.summaries.has(sessionId)) throw new Error(vscode.l10n.t('Session not found.'))
+    const next = update(this.metaFor(sessionId))
+    const candidate = new Map(this.metaBySession)
+    if (readSessionMeta(next) === undefined) candidate.delete(sessionId)
+    else candidate.set(sessionId, next)
+    try {
+      await this.globalState.update(SESSION_META_STATE_KEY, Object.fromEntries(candidate))
+    } catch (cause) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session metadata: {0}', errorMessage(cause)))
+      throw cause
+    }
+    this.metaBySession.clear()
+    for (const [key, value] of candidate) this.metaBySession.set(key, value)
+    this.fireChange()
+  }
+
+  private metaFor(sessionId: string): SessionMeta | undefined {
+    return this.metaBySession.get(sessionId)
   }
 
   /** Whether the active session's host command catalog contains a slash command. */
@@ -757,11 +832,12 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /**
    * Hides one history row from grouping surfaces via the official Harness
-   * archive set. Only rows the history list actually shows can be archived.
+   * archive set. Blank drafts may be archived too, so an unwanted
+   * new-conversation stub can be hidden; unknown ids are a no-op.
    */
   async archiveSession(id: string): Promise<void> {
     const summary = this.summaries.get(id)
-    if (summary === undefined || (summary.blank === true && !this.isArchived(id))) return
+    if (summary === undefined) return
     const snapshot = new Set(this.restoredIds)
     this.restoredIds.delete(id)
     try {
@@ -1094,6 +1170,36 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
+  private async persistEffortIntents(): Promise<void> {
+    try {
+      await this.globalState.update(EFFORT_INTENT_STATE_KEY, Object.fromEntries(this.effortIntents))
+    } catch (cause) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session reasoning intent: {0}', errorMessage(cause)))
+      throw cause
+    }
+  }
+
+  /** The model's supported reasoning tiers, falling back to the harness set.
+   * Provider is matched first: distinct providers may expose the same model id
+   * with different effort catalogs. */
+  private reasoningEffortOptions(provider: string, model: string): readonly { readonly id: string }[] {
+    const efforts = this.models?.groups
+      .find((group) => group.id === provider)
+      ?.models.find((entry) => entry.id === model)
+      ?.reasoning?.efforts
+    if (efforts !== undefined && efforts.length > 0) return efforts
+    return DEFAULT_REASONING_OPTIONS
+  }
+
+  /** Task signals used when resolving an 'auto' effort; prompt-level overrides win. */
+  private autoSignals(prompt?: PromptEffortSignals): AutoEffortSignals {
+    return {
+      promptTokens: prompt?.promptTokens ?? 0,
+      attachmentCount: prompt?.attachmentCount ?? 0,
+      historyTurns: projectSessionStats(this.entries).turns,
+    }
+  }
+
   private isArchived(sessionId: string): boolean {
     // Until the official archive set has been loaded once, an empty archivedIds
     // must not be treated as authoritative: that would expose (or hide) the
@@ -1124,7 +1230,12 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private orderedSummaries(): SessionSummary[] {
-    return [...this.summaries.values()].sort((left, right) => right.updatedAt - left.updatedAt)
+    return [...this.summaries.values()].sort((left, right) => {
+      const leftRank = metaSortRank(this.metaBySession.get(String(left.sessionId)))
+      const rightRank = metaSortRank(this.metaBySession.get(String(right.sessionId)))
+      if (leftRank !== rightRank) return leftRank - rightRank
+      return right.updatedAt - left.updatedAt
+    })
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
@@ -1353,6 +1464,31 @@ function subagentView(entry: SubagentListEntry): SubagentView {
     hasChildren: entry.hasChildren,
     mode: entry.mode,
     ...('label' in entry && entry.label !== undefined ? { label: entry.label } : {}),
+  }
+}
+
+const EFFORT_INTENT_STATE_KEY = 'deepseekHarness.sessionEffortIntents'
+const SESSION_META_STATE_KEY = 'deepseekHarness.sessionMeta'
+const DEFAULT_REASONING_OPTIONS: readonly { readonly id: string }[] = [
+  { id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' },
+]
+
+function isEffortIntent(value: unknown): value is EffortIntent {
+  return value === 'auto' || value === 'off' || value === 'low' || value === 'high' || value === 'max'
+}
+
+function loadEffortIntents(raw: unknown, target: Map<string, EffortIntent>): void {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return
+  for (const [sessionId, value] of Object.entries(raw)) {
+    if (isEffortIntent(value)) target.set(sessionId, value)
+  }
+}
+
+function loadSessionMeta(raw: unknown, target: Map<string, SessionMeta>): void {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return
+  for (const [sessionId, value] of Object.entries(raw)) {
+    const meta = readSessionMeta(value)
+    if (meta !== undefined) target.set(sessionId, meta)
   }
 }
 
