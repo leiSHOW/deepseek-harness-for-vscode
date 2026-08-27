@@ -5,6 +5,7 @@ import {
   components,
   elements,
   followStream,
+  interactionArmed,
   messageSignatures,
   node,
   optimisticBubbles,
@@ -32,6 +33,19 @@ import {
 
 export function cancelStickToBottom(): void {
   if (stickToBottomOnLoad) setStickToBottomOnLoad(false)
+}
+
+/**
+ * Instant scroll write: position restoration must not animate, otherwise the
+ * `scroll-behavior: smooth` container turns every state push into a glide
+ * that fights the reader's scrollbar.
+ */
+function setConversationScroll(top: number): void {
+  const conversation = elements.conversation
+  const previous = conversation.style.scrollBehavior
+  conversation.style.scrollBehavior = 'auto'
+  conversation.scrollTop = top
+  conversation.style.scrollBehavior = previous
 }
 
 export function renderMessages(active: ActiveSessionView | undefined): void {
@@ -113,15 +127,17 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   elements.empty.classList.toggle('hidden', messages.length > 0)
   const prepended = !sessionChanged && previousFirstId !== undefined
     && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
-  if (shouldStick) {
+  const pinnedInteraction = shouldStick && !interactionArmed
+  if (pinnedInteraction) {
     scrollConversationToBottom()
   } else if (prepended) {
-    elements.conversation.scrollTop = previousTop + elements.conversation.scrollHeight - previousHeight
+    // Anchor the pre-render position so history prepends don't shift the view.
+    setConversationScroll(previousTop + elements.conversation.scrollHeight - previousHeight)
   } else if (!stickToBottomOnLoad) {
     // Streaming below the viewport must not steal the reader's position, but
     // a freshly opened session must keep pinning to the bottom until its
     // load-scroll has actually landed.
-    elements.conversation.scrollTop = previousTop
+    setConversationScroll(previousTop)
   }
   // Keep forcing the bottom until the freshly opened session's transcript has
   // actually landed there. Clearing it as soon as messages exist lets the

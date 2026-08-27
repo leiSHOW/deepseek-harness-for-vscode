@@ -69,6 +69,13 @@ export class StreamingMessageComponent {
       details.dataset.disclosureKey = `reasoning-${index}`
       details.dataset.autoOpen = running ? 'true' : 'false'
       details.open = running
+      // A collapse by the reader overrides the streaming auto-open. The toggle
+      // is tracked manually (the summary click arrives before `open` flips, so
+      // "not open" alone cannot distinguish "was open" from "was closed").
+      details.addEventListener('toggle', () => {
+        if (!details.open) details.dataset.readerCollapsed = 'true'
+        else delete details.dataset.readerCollapsed
+      })
       const summary = this.options.document.createElement('summary')
       summary.append(this.reasoningDot(), this.label(running, block), this.reasoningPreview(block.text), this.chevron())
       const content = this.options.document.createElement('div')
@@ -91,8 +98,19 @@ export class StreamingMessageComponent {
       const label = rendered.querySelector<HTMLElement>('.reasoning-label')
       if (content === null || label === null) return false
       rendered.classList.toggle('running', running)
-      rendered.dataset.autoOpen = running ? 'true' : 'false'
-      rendered.open = running
+      // While reasoning streams, each frame expands the card so the live
+      // thought stays visible. Once the reader collapses it, their intent
+      // wins: every following frame would re-open it, so remember the closed
+      // state until the block finishes and a full re-render restores the
+      // "finished" disclosure conventions.
+      const collapsedByReader = rendered.dataset.readerCollapsed === 'true'
+      if (collapsedByReader) {
+        rendered.open = false
+        rendered.dataset.autoOpen = 'false'
+      } else {
+        rendered.dataset.autoOpen = running ? 'true' : 'false'
+        rendered.open = running
+      }
       label.textContent = this.labelText(running, block)
       const summary = rendered.querySelector<HTMLElement>('.reasoning-summary')
       if (summary !== null) {
