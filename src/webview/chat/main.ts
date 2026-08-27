@@ -28,6 +28,7 @@ import {
 import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
 import { cancelStickToBottom } from './messages.js'
+import { applyReferenceValidation, setReferenceValidator } from '../markdown.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
 import { isAtBottom, isNearBottom } from './utils.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
@@ -80,6 +81,10 @@ window.addEventListener('message', (event) => {
     }
     return
   }
+  if (event.data?.type === 'referenceValidation') {
+    applyReferenceValidation({ resolved: event.data.resolved ?? [], rejected: event.data.rejected ?? [] })
+    return
+  }
   if (event.data?.type === 'editorSelection') {
     components.editorContext.updateSelection(event.data.selection)
     return
@@ -97,6 +102,9 @@ window.addEventListener('message', (event) => {
   setPayload(event.data)
   render()
 })
+
+// Only references the Host confirmed as real workspace files become clickable.
+setReferenceValidator((keys) => post('validateFileReferences', { keys }))
 
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))

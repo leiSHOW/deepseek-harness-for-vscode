@@ -4,6 +4,7 @@ import type { ConfigurationService } from '../config/configuration.js'
 import type { ConnectionSettingsInput, ConnectionTestResult } from '../domain/connection-settings.js'
 import { AGENT_PRESET_OPTIONS, MODEL_OPTIONS, REASONING_OPTIONS } from '../domain/options.js'
 import { promptConfiguration } from '../domain/prompt-configuration.js'
+import { referenceFromKey as fileReferenceFromKey } from '../webview/file-reference.js'
 import type { EditorSelectionService } from '../editor/editor-selection-service.js'
 import type { OpenWorkspaceFileRequest } from '../editor/types.js'
 import type { WorkspaceFileService } from '../editor/workspace-file-service.js'
@@ -289,6 +290,23 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         if (!await this.workspaceFiles.open(request)) {
           void vscode.window.showWarningMessage(vscode.l10n.t('File is not available in the current workspace.'))
         }
+        break
+      }
+      case 'validateFileReferences': {
+        const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === 'string') : []
+        const resolved: string[] = []
+        const rejected: string[] = []
+        for (const key of keys) {
+          const reference = fileReferenceFromKey(key)
+          if (reference === undefined) {
+            rejected.push(key)
+            continue
+          }
+          const exists = await this.workspaceFiles.referenceExists(reference)
+          if (exists) resolved.push(key)
+          else rejected.push(key)
+        }
+        await this.postToHosts({ type: 'referenceValidation', resolved, rejected })
         break
       }
       case 'attachSelection': {

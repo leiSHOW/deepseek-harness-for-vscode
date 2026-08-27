@@ -110,6 +110,24 @@ export class WorkspaceFileService implements vscode.Disposable {
     return true
   }
 
+  /**
+   * Whether one render-time reference names a real workspace file. This is the
+   * authority behind clickable chat links: only references that resolve to an
+   * existing indexed file (path match or exact bare-name match) are reported
+   * resolved; everything else stays plain text in the transcript.
+   */
+  async referenceExists(request: OpenWorkspaceFileRequest): Promise<boolean> {
+    const reference = request.path?.trim()
+    if (reference === undefined || reference === '') return false
+    const folders = vscode.workspace.workspaceFolders ?? []
+    if (folders.length === 0) return false
+    const uri = await resolveWorkspaceReference(reference)
+    if (uri !== undefined) return true
+    const matches = matchBareFileName((await this.ensureIndex()).map((file) => file.view), reference)
+    const match = matches[0] === undefined ? undefined : this.filesById.get(matches[0].id)
+    return match !== undefined && vscode.workspace.getWorkspaceFolder(match.uri) !== undefined
+  }
+
   dispose(): void {
     for (const subscription of this.subscriptions) subscription.dispose()
   }

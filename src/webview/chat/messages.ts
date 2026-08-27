@@ -1,6 +1,6 @@
 import type { ActiveSessionView, ChatItem } from '../../domain/workbench-state.js'
 import { splitCarriedBlocks } from '../../domain/carry-over.js'
-import { renderMarkdown } from '../markdown.js'
+import { renderMarkdown, resetReferenceValidation } from '../markdown.js'
 import {
   components,
   elements,
@@ -38,7 +38,12 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   const realMessages = active?.messages || []
   const sessionId = active?.id || ''
   const sessionChanged = sessionId !== renderedSessionId
-  if (sessionChanged) setStickToBottomOnLoad(true)
+  if (sessionChanged) {
+    setStickToBottomOnLoad(true)
+    // A new transcript means a new existence ledger: verified references from
+    // the previous session must be re-checked before becoming clickable again.
+    resetReferenceValidation()
+  }
   if (sessionChanged && optimisticBubbles.length > 0) setOptimisticBubbles([])
   reconcileOptimistic(realMessages)
   const messages = [...realMessages, ...optimisticBubbles]

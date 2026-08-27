@@ -121,6 +121,85 @@ function positiveInteger(value: string | undefined): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
+/** Stable identity for one reference, shared between DOM markers and the host round-trip. */
+export function fileReferenceKey(reference: FileReference): string {
+  return JSON.stringify([reference.path, reference.line ?? null, reference.column ?? null])
+}
+
+/** Rebuilds the exact reference a key encodes; used when promoting a verified marker. */
+export function referenceFromKey(key: string): FileReference | undefined {
+  try {
+    const parsed: unknown = JSON.parse(key)
+    if (!Array.isArray(parsed) || parsed.length !== 3 || typeof parsed[0] !== 'string' || parsed[0] === '') {
+      return undefined
+    }
+    const path = parsed[0]
+    const line = typeof parsed[1] === 'number' && Number.isSafeInteger(parsed[1]) && parsed[1] > 0 ? parsed[1] : undefined
+    const column = typeof parsed[2] === 'number' && Number.isSafeInteger(parsed[2]) && parsed[2] > 0 ? parsed[2] : undefined
+    return {
+      path,
+      ...(line === undefined ? {} : { line }),
+      ...(column === undefined ? {} : { column }),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Webview-side existence ledger: only references the Host confirmed as real
+ * workspace files may become clickable. Unknown candidates render as plain
+ * text until the host answers; confirmed-missing references stay plain text.
+ * The pending set prevents re-sending the same candidate on every streaming
+ * frame before the host has answered.
+ */
+const verifiedReferences = new Set<string>()
+const rejectedReferences = new Set<string>()
+const pendingReferences = new Set<string>()
+
+export function markResolvedFileReferences(keys: readonly string[]): void {
+  for (const key of keys) {
+    if (!verifiedReferences.has(key)) verifiedReferences.add(key)
+    rejectedReferences.delete(key)
+    pendingReferences.delete(key)
+  }
+}
+
+export function markRejectedFileReferences(keys: readonly string[]): void {
+  for (const key of keys) {
+    verifiedReferences.delete(key)
+    if (!rejectedReferences.has(key)) rejectedReferences.add(key)
+    pendingReferences.delete(key)
+  }
+}
+
+/** Marks candidates as already sent to the host, awaiting an answer. */
+export function markPendingFileReferences(keys: readonly string[]): void {
+  for (const key of keys) pendingReferences.add(key)
+}
+
+/** Whether a reference is safe to render as a clickable file link right now. */
+export function isVerifiedFileReference(key: string): boolean {
+  return verifiedReferences.has(key)
+}
+
+/** Whether the host already answered "not a workspace file" for this key. */
+export function isRejectedFileReference(key: string): boolean {
+  return rejectedReferences.has(key)
+}
+
+/** Whether a validation request for this key is already in flight. */
+export function isPendingFileReference(key: string): boolean {
+  return pendingReferences.has(key)
+}
+
+/** Drops every resolution record; session switches change which files exist. */
+export function clearFileReferenceLedger(): void {
+  verifiedReferences.clear()
+  rejectedReferences.clear()
+  pendingReferences.clear()
+}
+
 function unwrap(value: string): string {
   if (value.length < 2) return value
   const first = value[0]
