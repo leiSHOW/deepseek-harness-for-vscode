@@ -80,11 +80,8 @@ export function sendPrompt(): void {
   if (!text && pastedImages.length === 0) return
   const configuration = components.composerConfiguration.selection()
   components.composerConfiguration.markSubmitted()
-  // While a turn is running a prompt is queued: applying the staged model or
-  // effort now would mutate the running turn's remaining steps, so the
-  // configuration travels only when this prompt starts a fresh turn (the
-  // host re-checks the running state before committing it).
-  const queued = payload?.state?.active?.running === true
+  // The configuration always travels with the prompt: the host stages it
+  // immediately for idle sessions and keeps it FIFO-pending for queued ones.
   post('sendPrompt', {
     text,
     mode: 'queue',
@@ -94,7 +91,7 @@ export function sendPrompt(): void {
       data,
       ...(name === undefined ? {} : { name }),
     })),
-    ...(configuration === undefined || queued ? {} : { configuration }),
+    ...(configuration === undefined ? {} : { configuration }),
   })
   components.editorContext.markSubmitted()
   // Optimistic echo: render the user bubble immediately so the conversation

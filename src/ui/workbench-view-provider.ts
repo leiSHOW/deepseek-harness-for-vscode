@@ -250,17 +250,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           promptTokens: Math.ceil(textChars / 4),
           attachmentCount: attachments.length,
         }
-        // A queued prompt must not mutate the running turn's model/effort for
-        // its remaining steps; configuration applies only when this prompt
-        // starts a fresh turn.
-        const running = (await this.gateway.snapshot()).active?.running === true
-        if (staged !== undefined && !running) {
-          await this.gateway.applyPromptConfiguration(staged, signals)
-        }
-        await this.gateway.prompt(
+        // The gateway owns configuration staging: idle prompts apply it ahead
+        // of admission; queued prompts keep it in a FIFO pending queue applied
+        // at the next turn boundary. No snapshot check races here.
+        await this.gateway.sendPrompt(
           text,
           value.mode === 'steer' ? 'steer' : 'queue',
           attachments,
+          staged,
+          signals,
         )
         break
       }

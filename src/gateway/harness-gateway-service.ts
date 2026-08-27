@@ -74,6 +74,15 @@ interface PendingQuestionRecord extends PendingQuestionView {
 }
 
 /**
+ * One FIFO slot aligned with the runtime queue: a configuration awaiting
+ * application at the next turn boundary, or a `none` marker keeping the
+ * alignment for a queued prompt that carried no configuration.
+ */
+type PendingConfigEntry =
+  | { readonly configuration: PromptConfiguration; readonly signals?: PromptEffortSignals }
+  | { readonly none: true }
+
+/**
  * Application service for the native VS Code workbench. It owns Gateway
  * connectivity and durable session state; neither the webview nor the runtime
  * launcher contains Harness business logic.
@@ -123,6 +132,16 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly effortIntents = new Map<string, EffortIntent>()
   /** Locally-owned session metadata (pin / favorite / tags). */
   private readonly metaBySession = new Map<string, SessionMeta>()
+  /**
+   * Configurations awaiting application, FIFO-aligned with the runtime queue:
+   * one entry per prompt admitted while the session was busy. Applied at the
+   * next turn boundary so a queued prompt never loses its configuration and
+   * no running turn is ever mutated mid-flight.
+   */
+  private readonly pendingConfigurations = new Map<string, PendingConfigEntry[]>()
+  /** Sessions for which this client admitted a prompt whose turn events have
+   * not arrived yet; guards the idle fast path against same-client rapid sends. */
+  private readonly admittedSessions = new Set<string>()
 
   readonly onDidChange = this.changeEmitter.event
 
@@ -519,40 +538,107 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.fireChange()
   }
 
+  /** Config-less convenience wrapper over {@link sendPrompt}. */
   async prompt(
     text: string,
     mode: 'queue' | 'steer' = 'queue',
     attachments: readonly PromptAttachment[] = [],
   ): Promise<void> {
+    return this.sendPrompt(text, mode, attachments)
+  }
+
+  /**
+   * Admits one prompt together with its staged configuration. The
+   * configuration is never dropped and never mutates a running turn:
+   *
+   *  - idle fast path: the configuration is applied (awaited) before admission,
+   *    so the turn starts with it (same-connection RPC ordering makes this
+   *    deterministic);
+   *  - busy path: the configuration rides a FIFO pending queue aligned with
+   *    the runtime queue and is applied at the next turn boundary, when no
+   *    turn is believed to be running;
+   *  - preset changes that open a fresh session are always applied
+   *    immediately, because the fork is a brand-new idle session.
+   */
+  async sendPrompt(
+    text: string,
+    mode: 'queue' | 'steer' = 'queue',
+    attachments: readonly PromptAttachment[] = [],
+    configuration?: PromptConfiguration,
+    signals?: PromptEffortSignals,
+  ): Promise<void> {
     const normalized = text.trim()
     if (normalized === '' && attachments.length === 0) return
     if (this.activeSessionId === undefined) await this.createSession()
     const sessionId = this.requireActiveSession()
+
+    let deferredEntry: PendingConfigEntry | undefined
+    if (configuration !== undefined) {
+      const summary = this.summaries.get(sessionId)
+      const transition = summary === undefined
+        ? 'keep-session'
+        : agentPresetTransition(
+          summary.blank === true,
+          summary.agentPreset ?? this.configuration.get().agentPreset,
+          configuration.agentPreset,
+        )
+      if (transition === 'create-session' || !this.isSessionBusy(sessionId)) {
+        // Fresh-session forks are idle by construction; the idle fast path
+        // applies in-order ahead of admission.
+        await this.applyPromptConfiguration(configuration, signals)
+      } else {
+        const entry: PendingConfigEntry = {
+          configuration,
+          ...(signals === undefined ? {} : { signals }),
+        }
+        deferredEntry = this.pendConfiguration(sessionId, entry)
+      }
+    } else if (this.isSessionBusy(sessionId)) {
+      // Keep the FIFO alignment with the runtime queue: a config-less prompt
+      // still owns one queue slot.
+      deferredEntry = this.pendConfiguration(sessionId, { none: true })
+    }
+
     if (this.subagentAddress === undefined && this.isRegisteredHostCommand(normalized)) {
       await this.executeHostCommand(normalized)
       return
     }
+    // The preset-fork path may have selected a new session above.
+    const target = this.requireActiveSession()
+
+    // Optimistic admission marker: a second prompt sent in the same tick must
+    // see this session as busy even before the turn events arrive.
+    this.admittedSessions.add(target)
     const content: PromptContentPart[] = [
       ...attachments.map(attachmentPart),
       ...(normalized === '' ? [] : [{ type: 'text' as const, text: normalized }]),
     ]
-    if (this.subagentAddress === undefined) {
-      valueOf(await this.requireClient().sessions.prompt({
-        sessionId: sessionId as SessionId,
-        mode,
-        content,
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }))
-    } else {
-      if (this.subagentAddress.mode === 'one-shot') throw new Error(vscode.l10n.t('One-shot sub-agent history is read-only.'))
-      if (content.some((part) => part.type === 'image')) {
-        throw new Error(vscode.l10n.t('Image attachments are not supported in sub-agent conversations.'))
+    try {
+      if (this.subagentAddress === undefined) {
+        valueOf(await this.requireClient().sessions.prompt({
+          sessionId: target as SessionId,
+          mode,
+          content,
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }))
+      } else {
+        if (this.subagentAddress.mode === 'one-shot') throw new Error(vscode.l10n.t('One-shot sub-agent history is read-only.'))
+        if (content.some((part) => part.type === 'image')) {
+          throw new Error(vscode.l10n.t('Image attachments are not supported in sub-agent conversations.'))
+        }
+        valueOf(await this.requireClient().subagents.prompt({
+          ...this.subagentAddress,
+          content: content.flatMap((part) => part.type === 'text' ? [{ type: 'text' as const, text: part.text }] : []),
+          clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }))
       }
-      valueOf(await this.requireClient().subagents.prompt({
-        ...this.subagentAddress,
-        content: content.flatMap((part) => part.type === 'text' ? [{ type: 'text' as const, text: part.text }] : []),
-        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      }))
+    } catch (cause) {
+      // The message never entered the queue: roll back the admission marker
+      // and the pending slot so nothing is applied for a prompt that will
+      // never run.
+      this.admittedSessions.delete(target)
+      if (deferredEntry !== undefined) this.unpendConfiguration(sessionId, deferredEntry)
+      throw cause
     }
   }
 
@@ -609,6 +695,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       itemId: itemId as MessageId,
       action: { kind: 'remove' },
     }))
+    // Removing an item breaks the FIFO alignment between the runtime queue
+    // and the pending configurations; drop them instead of applying a stale
+    // configuration to the wrong prompt.
+    this.pendingConfigurations.delete(sessionId)
   }
 
   /** Rewrites the text of one still-pending queued prompt. */
@@ -619,6 +709,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       itemId: itemId as MessageId,
       action: { kind: 'edit', content: [{ type: 'text', text }] },
     }))
+    // Same alignment concern as removeQueued: an edited item still occupies
+    // its queue slot, but its original configuration intent is no longer
+    // reliably attached to it.
+    this.pendingConfigurations.delete(sessionId)
   }
 
   async cancel(): Promise<void> {
@@ -732,6 +826,61 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private metaFor(sessionId: string): SessionMeta | undefined {
     return this.metaBySession.get(sessionId)
+  }
+
+  /** True while events or this client's own admission say a turn is running. */
+  private isTurnRunning(sessionId: string): boolean {
+    return this.summaries.get(sessionId)?.running === true || this.admittedSessions.has(sessionId)
+  }
+
+  /** True when a prompt sent right now would queue behind a running turn. */
+  private isSessionBusy(sessionId: string): boolean {
+    return this.isTurnRunning(sessionId)
+  }
+
+  private pendConfiguration(sessionId: string, entry: PendingConfigEntry): PendingConfigEntry {
+    const list = this.pendingConfigurations.get(sessionId)
+    if (list === undefined) this.pendingConfigurations.set(sessionId, [entry])
+    else list.push(entry)
+    return entry
+  }
+
+  private unpendConfiguration(sessionId: string, entry: PendingConfigEntry): void {
+    const list = this.pendingConfigurations.get(sessionId)
+    if (list === undefined) return
+    const index = list.indexOf(entry)
+    if (index !== -1) list.splice(index, 1)
+    if (list.length === 0) this.pendingConfigurations.delete(sessionId)
+  }
+
+  /**
+   * Applies the oldest queued configuration at a turn boundary. Runs only when
+   * no turn is believed to be running (never mutates a live turn); a skipped
+   * or failed application retries at the next boundary instead of losing the
+   * user's configuration. `none` markers are consumed to keep FIFO alignment
+   * with the runtime queue.
+   */
+  private flushPendingConfiguration(sessionId: string): void {
+    const list = this.pendingConfigurations.get(sessionId)
+    const entry = list?.[0]
+    if (entry === undefined) return
+    if (this.isTurnRunning(sessionId)) return
+    if ('none' in entry) {
+      list!.shift()
+      if (list!.length === 0) this.pendingConfigurations.delete(sessionId)
+      return
+    }
+    void this.applyPromptConfiguration(entry.configuration, entry.signals).then(
+      () => {
+        const current = this.pendingConfigurations.get(sessionId)
+        if (current === undefined || current[0] !== entry) return
+        current.shift()
+        if (current.length === 0) this.pendingConfigurations.delete(sessionId)
+      },
+      (cause: unknown) => {
+        this.output.appendLine(vscode.l10n.t('[gateway] Failed to apply a queued configuration: {0}', errorMessage(cause)))
+      },
+    )
   }
 
   /** Whether the active session's host command catalog contains a slash command. */
@@ -991,6 +1140,10 @@ export class HarnessGatewayService implements vscode.Disposable {
         })
       }
       this.maybeAutoTitle(id, frame.event)
+      if (frame.event.type === 'turn/end') {
+        this.admittedSessions.delete(id)
+        this.flushPendingConfiguration(id)
+      }
     } else if (frame.type === 'approval/requested' && String(frame.sessionId) === this.activeSessionId) {
       const key = `approval:${String(rpcId)}`
       this.approvals.set(key, {
@@ -1035,7 +1188,10 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (frame.type === 'host/session-added') {
       void this.refreshSessionList()
     } else if (frame.type === 'host/session-removed') {
-      this.summaries.delete(String(frame.sessionId))
+      const removed = String(frame.sessionId)
+      this.summaries.delete(removed)
+      this.pendingConfigurations.delete(removed)
+      this.admittedSessions.delete(removed)
     } else if (frame.type === 'host/archived-sessions-changed') {
       // A host snapshot is authoritative: establish the baseline before
       // installing the set so the sweep inside installArchivedIds treats the
@@ -1046,6 +1202,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       const id = String(frame.sessionId)
       const summary = this.summaries.get(id)
       if (summary !== undefined) this.summaries.set(id, { ...summary, running: frame.running, blank: frame.running ? false : summary.blank })
+      if (!frame.running) this.admittedSessions.delete(id)
     } else if (frame.type === 'host/agent-error') {
       this.output.appendLine(`[agent ${String(frame.sessionId)}] ${frame.message}`)
     } else if (frame.type === 'host/remote-event'

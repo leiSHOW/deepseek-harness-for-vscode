@@ -193,6 +193,7 @@
   "[gateway] Failed to save the restored session list: {0}": "[gateway] 保存已恢复会话列表失败：{0}",
   "[gateway] Failed to save the session reasoning intent: {0}": "[gateway] 保存会话推理意图失败：{0}",
   "[gateway] Failed to save the session metadata: {0}": "[gateway] 保存会话元数据失败：{0}",
+  "[gateway] Failed to apply a queued configuration: {0}": "[gateway] 应用排队配置失败：{0}",
   "Tags for this conversation (comma-separated)": "该会话的标签（逗号分隔）",
   "[gateway] Failed to persist pruned restored sessions: {0}": "[gateway] 持久化修剪后的已恢复会话失败：{0}",
   "[gateway] Failed to roll back the restored session list: {0}": "[gateway] 回滚已恢复会话列表失败：{0}",
