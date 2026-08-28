@@ -88,6 +88,56 @@ describe('WorktreeService against a real repository', () => {
     expect(branches).not.toContain(`dsh/${sid}`)
   }, 60_000)
 
+  it('diffs and merges purely uncommitted session work (no commits, sandbox reality)', async () => {
+    const sid = 'e2e-uncommitted'
+    const prepared = await service.prepare(sid, realRepo)
+    expect(prepared.isolated, JSON.stringify(prepared)).toBe(true)
+
+    // The session edits an existing file and creates a new one — no git
+    // commands at all. This is what a sandboxed session actually produces:
+    // the seatbelt profile denies agent writes to the shared .git dir, so
+    // `git add`/`git commit` inside the worktree cannot succeed.
+    await appendFile(path.join(prepared.cwd, 'readme.md'), 'uncommitted session line\n')
+    await appendFile(path.join(prepared.cwd, 'notes.md'), 'brand new file\n')
+
+    // Review diff must show BOTH the edit and the untracked new file.
+    const diff = await service.diffText(sid)
+    expect(diff).toContain('uncommitted session line')
+    expect(diff).toContain('brand new file')
+    // A commit-based branch diff would be empty here; assert the new
+    // working-tree diff is what we got.
+    expect(diff).not.toBe('')
+
+    // Merge back lands the uncommitted work on main.
+    const merge = await service.mergeBack(sid)
+    expect(merge.ok, merge.message).toBe(true)
+    expect(merge.message).toBe('merged')
+    expect(git(realRepo, ['show', 'main:readme.md']).stdout).toContain('uncommitted session line')
+    expect(git(realRepo, ['show', 'main:notes.md']).stdout).toContain('brand new file')
+    // And a clean main worktree reflects it on disk.
+    expect(git(realRepo, ['status', '--porcelain']).stdout).toBe('')
+
+    // A second merge with nothing left reports no-changes instead of lying.
+    // (The worktree was already merged; the branch still has no new commits
+    // and the working tree still differs — so discard it instead.)
+    const discard = await service.discard(sid)
+    expect(discard.ok, discard.message).toBe(true)
+  }, 60_000)
+
+  it('reports no-changes when the session produced nothing', async () => {
+    const sid = 'e2e-empty'
+    const prepared = await service.prepare(sid, realRepo)
+    expect(prepared.isolated, JSON.stringify(prepared)).toBe(true)
+
+    const diff = await service.diffText(sid)
+    expect(diff?.trim()).toBe('')
+    const merge = await service.mergeBack(sid)
+    expect(merge).toEqual({ ok: true, message: 'no-changes' })
+    // Main is untouched.
+    expect(git(realRepo, ['rev-parse', 'main']).stdout).toBe(git(realRepo, ['rev-parse', 'HEAD']).stdout)
+    await service.discard(sid)
+  }, 60_000)
+
   it('falls back when the workspace is not a git repository', async () => {
     const plain = await mkdtemp(path.join(os.tmpdir(), 'dsh-wt-plain-'))
     try {

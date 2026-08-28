@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { ExecFileOptions } from 'node:child_process'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 import type * as vscode from 'vscode'
@@ -114,12 +115,19 @@ export class WorktreeService implements vscode.Disposable {
     return { cwd: worktreePath, isolated: true, record }
   }
 
-  /** Unified diff between the session branch and its base branch. */
+  /**
+   * Full session output as a unified diff against the base branch. Deliberately
+   * compares the base commit to the worktree's *working tree* (not to the
+   * session branch): the sandbox fences agent git writes out of the shared
+   * `.git` directory, so session work is normally uncommitted — a commit-based
+   * `base...branch` diff would read as empty and hide everything.
+   */
   async diffText(sessionId: string): Promise<string | undefined> {
     const record = this.records.get(sessionId)
     if (record === undefined) return undefined
     try {
-      const { stdout } = await this.run(record.repoRoot, ['diff', `${record.baseBranch}...${record.branch}`])
+      await this.markIntentToAdd(record)
+      const { stdout } = await this.run(record.worktreePath, ['diff', record.baseBranch])
       return stdout
     } catch {
       return undefined
@@ -127,12 +135,24 @@ export class WorktreeService implements vscode.Disposable {
   }
 
   /**
-   * Merges the session branch back into its base branch using a temporary
-   * detached worktree, so the user's main checkout is never touched by the
-   * merge machinery. The base branch ref is then updated with `git update-ref`
-   * (the same primitive `git fetch` uses to update a checked-out branch), and
-   * — when the main worktree is clean — its working tree is synced to the
-   * merge commit so the change appears there immediately.
+   * Marks untracked files intent-to-add so they appear in `git diff` output
+   * (new files are half of what a session produces). Best-effort: a failure
+   * (e.g. an index.lock race with the session) only loses untracked entries.
+   */
+  private async markIntentToAdd(record: WorktreeRecord): Promise<void> {
+    await this.run(record.worktreePath, ['add', '-N', '.']).catch(() => undefined)
+  }
+
+  /**
+   * Merges the session's final worktree state back into its base branch using
+   * a temporary detached worktree, so the user's main checkout is never
+   * touched by the merge machinery. Because the sandbox keeps agent commits
+   * out of the shared `.git` directory, the session's work usually lives as
+   * uncommitted changes: committed branch work (if any) comes in via `git
+   * merge`, then the worktree's uncommitted diff is applied on top and
+   * committed in the temporary worktree. The base branch ref is advanced with
+   * `git update-ref` (the primitive `git fetch` uses), and — when the main
+   * worktree was clean — its working tree is synced to the result.
    */
   async mergeBack(sessionId: string): Promise<MergeOutcome> {
     const record = this.records.get(sessionId)
@@ -142,16 +162,41 @@ export class WorktreeService implements vscode.Disposable {
     // necessarily "dirty" relative to the new HEAD, so post-merge checks are
     // meaningless. A clean start means we can safely sync the working tree.
     const wasClean = !(await worktreeDirty(this.run, record.repoRoot))
+    const branchHead = await this.revParse(record.repoRoot, `refs/heads/${record.branch}`)
+    const baseHead = await this.revParse(record.repoRoot, `refs/heads/${record.baseBranch}`)
     try {
       await this.run(record.repoRoot, ['worktree', 'add', '--detach', tmp, record.baseBranch])
       try {
-        await this.run(tmp, ['merge', '--no-ff', '-m', `Merge session ${sessionId}`, record.branch])
+        if (branchHead !== undefined && branchHead !== baseHead) {
+          await this.run(tmp, ['merge', '--no-ff', '-m', `Merge session ${sessionId}`, record.branch])
+        }
+        const patch = await this.uncommittedPatch(record)
+        if (patch !== '') {
+          const applied = await this.applyPatch(tmp, sessionId, patch)
+          if (!applied) {
+            await this.run(record.repoRoot, ['worktree', 'remove', '--force', tmp]).catch(() => undefined)
+            return { ok: false, message: 'merge-conflict' }
+          }
+        }
+        const hasCommits = branchHead !== undefined && branchHead !== baseHead
+        if (patch === '' && !hasCommits) {
+          await this.run(record.repoRoot, ['worktree', 'remove', '--force', tmp]).catch(() => undefined)
+          return { ok: true, message: 'no-changes' }
+        }
+        if (patch !== '') {
+          await this.run(tmp, ['add', '-A'])
+          await this.run(tmp, [
+            '-c', 'user.name=DSH Session Merge',
+            '-c', 'user.email=dsh-session@localhost',
+            'commit', '-m', `Session ${sessionId} worktree changes`,
+          ])
+        }
         const { stdout: head } = await this.run(tmp, ['rev-parse', 'HEAD'])
         await this.run(record.repoRoot, ['update-ref', `refs/heads/${record.baseBranch}`, head.trim()])
         await this.run(record.repoRoot, ['worktree', 'remove', '--force', tmp])
         if (wasClean) {
-          // The main worktree was clean, so syncing it to the merge commit
-          // loses nothing and shows the merged result in the user's checkout.
+          // The main worktree was clean, so syncing it to the merge result
+          // loses nothing and shows the merged state in the user's checkout.
           await this.run(record.repoRoot, ['reset', '--hard', 'HEAD']).catch(() => undefined)
           return { ok: true, message: 'merged' }
         }
@@ -164,6 +209,44 @@ export class WorktreeService implements vscode.Disposable {
       }
     } catch {
       return { ok: false, message: 'merge-worktree-failed' }
+    }
+  }
+
+  private async revParse(cwd: string, ref: string): Promise<string | undefined> {
+    try {
+      const { stdout } = await this.run(cwd, ['rev-parse', ref])
+      return stdout.trim()
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * The worktree's uncommitted output as a patch (tracked edits, deletions and
+   * intent-to-add new files vs HEAD). Empty string when there is nothing to
+   * apply or the diff cannot be produced.
+   */
+  private async uncommittedPatch(record: WorktreeRecord): Promise<string> {
+    try {
+      await this.markIntentToAdd(record)
+      const { stdout } = await this.run(record.worktreePath, ['diff', 'HEAD'])
+      return stdout.trim() === '' ? '' : stdout
+    } catch {
+      return ''
+    }
+  }
+
+  /** Applies a patch inside the temporary merge worktree via a scratch file. */
+  private async applyPatch(tmp: string, sessionId: string, patch: string): Promise<boolean> {
+    const patchFile = path.join(os.tmpdir(), `dsh-merge-${sessionId}.patch`)
+    try {
+      await writeFile(patchFile, patch)
+      await this.run(tmp, ['apply', '--whitespace=nowarn', patchFile])
+      return true
+    } catch {
+      return false
+    } finally {
+      await rm(patchFile, { force: true }).catch(() => undefined)
     }
   }
 

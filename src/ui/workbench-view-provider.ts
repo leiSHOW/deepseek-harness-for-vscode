@@ -452,6 +452,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         void vscode.window.showErrorMessage(vscode.l10n.t('Merge failed: {0}', outcome.message))
         return
       }
+      if (outcome.message === 'no-changes') {
+        void vscode.window.showInformationMessage(vscode.l10n.t('Nothing to merge: the session worktree has no changes.'))
+        return
+      }
       const note = outcome.message === 'merged-dirty'
         ? vscode.l10n.t(' The branch was updated, but your working tree had uncommitted changes and still trails the branch.')
         : ''

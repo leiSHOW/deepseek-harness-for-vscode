@@ -106,6 +106,9 @@ describe('WorktreeService.diffText / merge / discard', () => {
       calls.push([...args])
       if (args.includes('--show-toplevel')) return ok('/repo\n')
       if (args.includes('--abbrev-ref')) return ok('main\n')
+      if (args[0] === 'rev-parse' && typeof args[1] === 'string' && args[1].startsWith('refs/heads/')) {
+        return ok(args[1] === 'refs/heads/main' ? 'base1\n' : 'sess1\n')
+      }
       if (args.includes('rev-parse') && args.includes('HEAD')) return ok('m1\n')
       return ok('')
     }
@@ -120,6 +123,53 @@ describe('WorktreeService.diffText / merge / discard', () => {
     expect(calls).toContainEqual(['update-ref', 'refs/heads/main', 'm1'])
   })
 
+  it('merges uncommitted worktree output even when the session never committed', async () => {
+    const { memento } = memStore()
+    const calls: string[][] = []
+    const run: GitRunner = (_cwd, args) => {
+      calls.push([...args])
+      if (args.includes('--show-toplevel')) return ok('/repo\n')
+      if (args.includes('--abbrev-ref')) return ok('main\n')
+      // Branch and base point at the same commit: the session has no commits
+      // (the sandbox keeps agent git writes out of the shared .git dir).
+      if (args[0] === 'rev-parse' && typeof args[1] === 'string' && args[1].startsWith('refs/heads/')) return ok('same1\n')
+      if (args[0] === 'diff' && args[1] === 'HEAD') return ok('diff --git a/app.ts b/app.ts\n')
+      if (args.includes('rev-parse') && args.includes('HEAD')) return ok('m1\n')
+      return ok('')
+    }
+    const service = new WorktreeService(memento, run)
+    await service.prepare('abc123', '/repo')
+
+    const outcome = await service.mergeBack('abc123')
+
+    expect(outcome).toEqual({ ok: true, message: 'merged' })
+    expect(calls).not.toContainEqual(['merge', '--no-ff', '-m', 'Merge session abc123', 'dsh/abc123'])
+    expect(calls.some((entry) => entry[0] === 'apply' && entry[1] === '--whitespace=nowarn')).toBe(true)
+    expect(calls).toContainEqual(['add', '-A'])
+    expect(calls).toContainEqual(['-c', 'user.name=DSH Session Merge', '-c', 'user.email=dsh-session@localhost', 'commit', '-m', 'Session abc123 worktree changes'])
+    expect(calls).toContainEqual(['update-ref', 'refs/heads/main', 'm1'])
+  })
+
+  it('reports no-changes when the worktree is identical to the base', async () => {
+    const { memento } = memStore()
+    const calls: string[][] = []
+    const run: GitRunner = (_cwd, args) => {
+      calls.push([...args])
+      if (args.includes('--show-toplevel')) return ok('/repo\n')
+      if (args.includes('--abbrev-ref')) return ok('main\n')
+      if (args[0] === 'rev-parse') return ok('same1\n')
+      if (args[0] === 'diff') return ok('')
+      return ok('')
+    }
+    const service = new WorktreeService(memento, run)
+    await service.prepare('abc123', '/repo')
+
+    const outcome = await service.mergeBack('abc123')
+
+    expect(outcome).toEqual({ ok: true, message: 'no-changes' })
+    expect(calls).not.toContainEqual(['update-ref', 'refs/heads/main', 'same1'])
+  })
+
   it('reports a merge conflict and cleans the temp worktree', async () => {
     const { memento } = memStore()
     const calls: string[][] = []
@@ -127,7 +177,10 @@ describe('WorktreeService.diffText / merge / discard', () => {
       calls.push([...args])
       if (args.includes('--show-toplevel')) return ok('/repo\n')
       if (args.includes('--abbrev-ref')) return ok('main\n')
-      if (args.includes('merge')) return Promise.reject(new Error('conflict'))
+      if (args[0] === 'rev-parse' && typeof args[1] === 'string' && args[1].startsWith('refs/heads/')) {
+        return ok(args[1] === 'refs/heads/main' ? 'base1\n' : 'sess1\n')
+      }
+      if (args[0] === 'merge') return Promise.reject(new Error('conflict'))
       return ok('')
     }
     const service = new WorktreeService(memento, run)
@@ -138,6 +191,29 @@ describe('WorktreeService.diffText / merge / discard', () => {
     expect(outcome.ok).toBe(false)
     expect(outcome.message).toBe('merge-conflict')
     expect(calls).toContainEqual(['worktree', 'remove', '--force', '/repo/.dsh-worktrees/.merge-abc123'])
+  })
+
+  it('diffText compares the base commit to the working tree, not the branch tip', async () => {
+    const { memento } = memStore()
+    const calls: string[][] = []
+    const run: GitRunner = (_cwd, args) => {
+      calls.push([...args])
+      if (args.includes('--show-toplevel')) return ok('/repo\n')
+      if (args.includes('--abbrev-ref')) return ok('main\n')
+      if (args[0] === 'diff' && args[1] === 'main') return ok('diff --git a/x b/x\n')
+      return ok('')
+    }
+    const service = new WorktreeService(memento, run)
+    await service.prepare('abc123', '/repo')
+
+    const diff = await service.diffText('abc123')
+
+    expect(diff).toBe('diff --git a/x b/x\n')
+    // The diff runs inside the session worktree (its working tree is the
+    // source of truth) and untracked files are marked intent-to-add first.
+    expect(calls).toContainEqual(['add', '-N', '.'])
+    expect(calls).toContainEqual(['diff', 'main'])
+    expect(calls.some((entry) => entry[0] === 'diff' && entry[1]?.includes('...'))).toBe(false)
   })
 
   it('discard removes the worktree, the branch, and the registry entry', async () => {
