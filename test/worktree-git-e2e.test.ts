@@ -1,0 +1,102 @@
+import { mkdtemp, appendFile, rm } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { WorktreeService } from '../src/editor/worktree-service.js'
+
+/**
+ * End-to-end test against a real git repository (requires `git` on PATH).
+ * Creates a throwaway repo under the OS temp dir and cleans it up after.
+ */
+
+let repo = ''
+let realRepo = ''
+let service: WorktreeService
+
+function git(cwd: string, args: string[]): { stdout: string; stderr: string } {
+  try {
+    const stdout = execFileSync('git', args, { cwd, encoding: 'utf8' })
+    return { stdout, stderr: '' }
+  } catch (cause: unknown) {
+    const err = cause as { stderr?: string; message?: string }
+    throw new Error(err?.stderr?.trim() || err?.message || String(cause))
+  }
+}
+
+function run(cwd: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
+  return Promise.resolve().then(() => git(cwd, [...args]))
+}
+
+function memento() {
+  const state = new Map<string, unknown>()
+  return { get: (k: string) => state.get(k), update: async (k: string, v: unknown) => { state.set(k, v) } } as never
+}
+
+beforeAll(async () => {
+  repo = await mkdtemp(path.join(os.tmpdir(), 'dsh-wt-e2e-'))
+  git(repo, ['init', '-q', '-b', 'main'])
+  git(repo, ['config', 'user.email', 'e2e@test'])
+  git(repo, ['config', 'user.name', 'E2E'])
+  await appendFile(path.join(repo, 'readme.md'), 'hello\n')
+  git(repo, ['add', '.'])
+  git(repo, ['commit', '-qm', 'init'])
+  realRepo = git(repo, ['rev-parse', '--show-toplevel']).stdout.trim()
+  service = new WorktreeService(memento(), run)
+})
+
+afterAll(async () => {
+  await rm(repo, { recursive: true, force: true })
+})
+
+describe('WorktreeService against a real repository', () => {
+  it('isolates a session, diffs it, merges it back, then discards cleanly', async () => {
+    const sid = 'e2e-1'
+    const prepared = await service.prepare(sid, realRepo)
+    expect(prepared.isolated, JSON.stringify(prepared)).toBe(true)
+    expect(prepared.cwd).toBe(`${realRepo}/.dsh-worktrees/${sid}`)
+
+    // The worktree is a real checkout on its own branch.
+    const branch = git(prepared.cwd, ['branch', '--show-current']).stdout.trim()
+    expect(branch).toBe(`dsh/${sid}`)
+    // The main checkout is untouched by the existence of the worktree.
+    expect(git(realRepo, ['status', '--porcelain']).stdout).toBe('')
+
+    // Session edits the worktree copy.
+    await appendFile(path.join(prepared.cwd, 'readme.md'), 'changed by session\n')
+    git(prepared.cwd, ['add', '.'])
+    git(prepared.cwd, ['-c', 'user.email=e2e@test', '-c', 'user.name=E2E', 'commit', '-qm', 'session work'])
+
+    // Isolation: main checkout still shows the original file.
+    expect(git(realRepo, ['show', 'HEAD:readme.md']).stdout).toBe('hello\n')
+    expect(git(realRepo, ['status', '--porcelain']).stdout).toBe('')
+
+    // Diff surfaces the session change.
+    const diff = await service.diffText(sid)
+    expect(diff).toContain('changed by session')
+
+    // Merge back lands on main without touching the main working tree.
+    const merge = await service.mergeBack(sid)
+    expect(merge.ok, merge.message).toBe(true)
+    expect(git(realRepo, ['show', 'main:readme.md']).stdout).toContain('changed by session')
+    expect(git(realRepo, ['status', '--porcelain']).stdout).toBe('')
+
+    // Discard removes the worktree and branch.
+    const discard = await service.discard(sid)
+    expect(discard.ok, discard.message).toBe(true)
+    const branches = git(realRepo, ['branch']).stdout
+    expect(branches).not.toContain(`dsh/${sid}`)
+  }, 60_000)
+
+  it('falls back when the workspace is not a git repository', async () => {
+    const plain = await mkdtemp(path.join(os.tmpdir(), 'dsh-wt-plain-'))
+    try {
+      const prepared = await service.prepare('e2e-plain', plain)
+      expect(prepared.isolated).toBe(false)
+      expect(prepared.reason).toBe('no-git-repo')
+      expect(prepared.cwd).toBe(plain)
+    } finally {
+      await rm(plain, { recursive: true, force: true })
+    }
+  })
+})

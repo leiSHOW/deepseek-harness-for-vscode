@@ -21,6 +21,8 @@ export interface SessionListItem {
   readonly running: boolean
   readonly blank: boolean
   readonly agentPreset?: string
+  /** Whether this session runs in its own git worktree (plan A2 isolation). */
+  readonly isolated?: boolean
 }
 
 export interface ChatBlock {

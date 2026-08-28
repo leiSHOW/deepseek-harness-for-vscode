@@ -32,7 +32,7 @@ export function renderSessions(): void {
     // A blank draft has nothing worth hiding, but an archived one still needs restore.
     const canArchive = showingArchived || !session.blank
     const wrap = node('div', 'session-row-wrap')
-    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}`) as HTMLButtonElement
+    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}${session.isolated === true ? ' has-worktree-action' : ''}`) as HTMLButtonElement
     if (session.id === payload.state.active?.id) button.classList.add('active')
     const top = node('span', 'session-row-top')
     top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
@@ -66,6 +66,18 @@ export function renderSessions(): void {
           return
         }
         post('archiveSession', { sessionId: session.id })
+      })
+      wrap.append(action)
+    }
+    if (session.isolated === true) {
+      const action = node('button', 'icon-button compact session-worktree-action') as HTMLButtonElement
+      action.type = 'button'
+      action.title = t('worktreeActions')
+      action.setAttribute('aria-label', action.title)
+      action.textContent = '⑂'
+      action.addEventListener('click', (event) => {
+        event.stopPropagation()
+        post('worktreeAction', { sessionId: session.id })
       })
       wrap.append(action)
     }

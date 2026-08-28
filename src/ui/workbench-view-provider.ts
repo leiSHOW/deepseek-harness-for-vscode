@@ -287,13 +287,16 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       }
       case 'openFile': {
         const request = openFileRequest(value)
-        if (!await this.workspaceFiles.open(request)) {
+        const roots = this.gateway.activeWorktreeRoot()
+        if (!await this.workspaceFiles.open(request, roots === undefined ? undefined : [roots])) {
           void vscode.window.showWarningMessage(vscode.l10n.t('File is not available in the current workspace.'))
         }
         break
       }
       case 'validateFileReferences': {
         const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === 'string') : []
+        const roots = this.gateway.activeWorktreeRoot()
+        const rootList = roots === undefined ? undefined : [roots]
         const resolved: string[] = []
         const rejected: string[] = []
         for (const key of keys) {
@@ -302,7 +305,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
             rejected.push(key)
             continue
           }
-          const exists = await this.workspaceFiles.referenceExists(reference)
+          const exists = await this.workspaceFiles.referenceExists(reference, rootList)
           if (exists) resolved.push(key)
           else rejected.push(key)
         }
@@ -367,6 +370,9 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       case 'restoreSession':
         await this.gateway.restoreSession(requiredString(value, 'sessionId'))
         break
+      case 'worktreeAction':
+        await this.handleWorktreeAction(requiredString(value, 'sessionId'))
+        break
       case 'exportSession': {
         const sessionId = optionalString(value.sessionId)
         const exportId = sessionId === undefined ? (await this.gateway.snapshot()).active?.id : sessionId
@@ -405,6 +411,67 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       type: 'editorSelection',
       selection: this.editorSelection.current(),
     })
+  }
+
+  /**
+   * End-of-session triage for an isolated (worktree-backed) session: Review
+   * diff, Merge back to the base branch, or Discard the worktree.
+   */
+  private async handleWorktreeAction(sessionId: string): Promise<void> {
+    const record = this.gateway.worktreeRecord(sessionId)
+    if (record === undefined) {
+      void vscode.window.showInformationMessage(vscode.l10n.t('This session does not have an isolated worktree.'))
+      return
+    }
+    const review = vscode.l10n.t('Review diff')
+    const merge = vscode.l10n.t('Merge back to {0}', record.baseBranch)
+    const discard = vscode.l10n.t('Discard worktree')
+    const choice = await vscode.window.showQuickPick([review, merge, discard], {
+      title: vscode.l10n.t('Session worktree (branch {0})', record.branch),
+      placeHolder: vscode.l10n.t("Choose what to do with this session's isolated worktree"),
+    })
+    if (choice === review) {
+      const diff = await this.gateway.worktreeDiff(sessionId)
+      if (diff === undefined || diff === '') {
+        void vscode.window.showInformationMessage(vscode.l10n.t('The session branch has no diff against {0}.', record.baseBranch))
+        return
+      }
+      const document = await vscode.workspace.openTextDocument({ language: 'diff', content: diff })
+      await vscode.window.showTextDocument(document, { preview: true })
+      return
+    }
+    if (choice === merge) {
+      const confirm = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Merge branch {0} into {1}?', record.branch, record.baseBranch),
+        { modal: true },
+        vscode.l10n.t('Merge'),
+      )
+      if (confirm === undefined) return
+      const outcome = await this.gateway.worktreeMerge(sessionId)
+      if (!outcome.ok) {
+        void vscode.window.showErrorMessage(vscode.l10n.t('Merge failed: {0}', outcome.message))
+        return
+      }
+      const note = outcome.message === 'merged-dirty'
+        ? vscode.l10n.t(' The branch was updated, but your working tree had uncommitted changes and still trails the branch.')
+        : ''
+      void vscode.window.showInformationMessage(vscode.l10n.t('Merged {0} into {1}.', record.branch, record.baseBranch) + note)
+      return
+    }
+    if (choice === discard) {
+      const confirm = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Discard the worktree for this session? The session log is kept.'),
+        { modal: true },
+        vscode.l10n.t('Discard'),
+      )
+      if (confirm === undefined) return
+      const outcome = await this.gateway.worktreeDiscard(sessionId)
+      if (!outcome.ok) {
+        void vscode.window.showErrorMessage(vscode.l10n.t('Discard failed: {0}', outcome.message))
+        return
+      }
+      void vscode.window.showInformationMessage(vscode.l10n.t('Worktree discarded.'))
+    }
   }
 
   private html(webview: vscode.Webview): string {

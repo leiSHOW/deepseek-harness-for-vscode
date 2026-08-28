@@ -39,6 +39,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   forkConversation: 'Fork from the current progress',
   archiveSession: 'Archive conversation',
   restoreSession: 'Restore conversation',
+  worktreeActions: 'Review diff, merge back, or discard this session\u2019s worktree',
   archivedConversations: 'Archived',
   archivedSearchHint: '{count} archived conversations match. Open Archived to continue them.',
   exportSession: 'Export session (ZIP)',

@@ -29,6 +29,7 @@ import { agentPresetTransition, type PromptConfiguration } from '../domain/promp
 import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
 import { sameWorkspacePath } from '../domain/workspace-scope.js'
+import type { WorktreeService } from '../editor/worktree-service.js'
 import {
   RESTORED_ARCHIVE_STATE_KEY,
   isEffectivelyArchived,
@@ -123,6 +124,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     private readonly connectionSettings: ConnectionSettingsService,
     private readonly output: vscode.OutputChannel,
     private readonly globalState: vscode.Memento,
+    private readonly worktrees: WorktreeService,
   ) {
     this.restoredIds = new Set(readRestoredArchiveIds(globalState.get(RESTORED_ARCHIVE_STATE_KEY)))
     this.runtimeSubscription = runtime.onDidChangeState((state) => {
@@ -169,6 +171,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       await this.connectionSettings.connect(this.client)
       this.startEventStreams()
       await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
+      // Sweep worktrees whose session no longer exists (crash between worktree
+      // add and session create, or a session removed out-of-band).
+      void this.cleanupOrphanWorktrees()
       const requested = this.activeSessionId
       const next = requested !== undefined && this.summaries.has(requested) && !this.isArchived(requested)
         ? requested
@@ -212,7 +217,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
     const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
     const partitioned = partitionSessionLists(
-      scoped.map((summary) => sessionListItem(summary, this.labels)),
+      scoped.map((summary) => this.sessionListItemWithIsolation(summary)),
       this.archivedIds,
       this.restoredIds,
     )
@@ -295,8 +300,29 @@ export class HarnessGatewayService implements vscode.Disposable {
     const client = this.requireClient()
     const config = this.configuration.get()
     const selectedPreset = agentPreset ?? config.agentPreset
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
-    const created = valueOf(await client.sessions.create({ cwd, agentPreset: selectedPreset }))
+    // A2 isolation: preallocate a session id so the worktree can be created
+    // under that id before the session exists, then hand the worktree path as
+    // the session cwd (the sandbox root). Non-git workspaces fall back to the
+    // shared workspace folder.
+    const sessionId = newSessionId()
+    const baseCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
+    const prepared = await this.worktrees.prepare(sessionId, baseCwd)
+    let created
+    try {
+      created = valueOf(await client.sessions.create({ cwd: prepared.cwd, sessionId: sessionId as SessionId, agentPreset: selectedPreset }))
+    } catch (cause) {
+      // Roll back the freshly created worktree so a failed create cannot leak it.
+      if (prepared.isolated) await this.worktrees.discard(sessionId).catch(() => undefined)
+      throw cause
+    }
+    if (!prepared.isolated && prepared.reason !== undefined) {
+      const note = prepared.reason === 'no-git-repo'
+        ? vscode.l10n.t('The workspace is not a git repository, so this session shares the workspace folder instead of an isolated worktree.')
+        : prepared.reason === 'detached-head'
+          ? vscode.l10n.t('The repository has no active branch (detached HEAD), so this session shares the workspace folder instead of an isolated worktree.')
+          : vscode.l10n.t('Could not create an isolated worktree for this session, so it shares the workspace folder.')
+      void vscode.window.showInformationMessage(note)
+    }
     if (agentPreset !== undefined) await this.configuration.setAgentPresetIfKnown(agentPreset)
     await this.refreshSessionList()
     await this.selectSession(String(created.sessionId))
@@ -812,6 +838,60 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /**
+   * Returns the unified diff between an isolated session's branch and its base
+   * branch, for the "Review diff" end-of-session action.
+   */
+  async worktreeDiff(sessionId: string): Promise<string | undefined> {
+    return this.worktrees.diffText(sessionId)
+  }
+
+  /** The worktree record for one session, if isolated (host-side triage reads it). */
+  worktreeRecord(sessionId: string): { readonly baseBranch: string; readonly branch: string } | undefined {
+    const record = this.worktrees.recordFor(sessionId)
+    return record === undefined ? undefined : { baseBranch: record.baseBranch, branch: record.branch }
+  }
+
+  /**
+   * The worktree root of the currently active session, when isolated. File
+   * references rendered for that conversation resolve against this root first,
+   * so links point at the copy the agent actually edited.
+   */
+  activeWorktreeRoot(): string | undefined {
+    return this.activeSessionId === undefined ? undefined : this.worktrees.recordFor(this.activeSessionId)?.worktreePath
+  }
+
+  /** Merges an isolated session's branch back into its base branch. */
+  async worktreeMerge(sessionId: string): Promise<{ ok: boolean; message: string }> {
+    const outcome = await this.worktrees.mergeBack(sessionId)
+    if (outcome.ok) {
+      await this.refreshSessionList()
+      this.fireChange()
+    }
+    return outcome
+  }
+
+  /** Removes an isolated session's worktree and branch; the session log stays. */
+  async worktreeDiscard(sessionId: string): Promise<{ ok: boolean; message: string }> {
+    const outcome = await this.worktrees.discard(sessionId)
+    if (outcome.ok) {
+      await this.refreshSessionList()
+      this.fireChange()
+    }
+    return outcome
+  }
+
+  /** Removes worktrees whose session no longer exists (deleted or crashed mid-create). */
+  async cleanupOrphanWorktrees(): Promise<string[]> {
+    const live = new Set(this.summaries.keys())
+    const removed = await this.worktrees.cleanupOrphans(live)
+    if (removed.length > 0) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Removed {0} orphaned worktree(s): {1}', removed.length, removed.join(', ')))
+      this.fireChange()
+    }
+    return removed
+  }
+
+  /**
    * Brings a Harness-archived session back to this workbench's default list.
    * The bundled runtime (0.1.1-rc.2) has no unarchive RPC, so restore is a
    * durable overlay on the official set.
@@ -1130,6 +1210,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     await this.createSession()
   }
 
+  private sessionListItemWithIsolation(summary: SessionSummary): ReturnType<typeof sessionListItem> {
+    const item = sessionListItem(summary, this.labels)
+    if (this.worktrees.recordFor(String(summary.sessionId)) === undefined) return item
+    return { ...item, isolated: true }
+  }
+
   private async refreshPresets(): Promise<void> {
     this.presets = valueOf(await this.requireClient().agentPresets.list({})).presets
     this.fireChange()
@@ -1148,10 +1234,13 @@ export class HarnessGatewayService implements vscode.Disposable {
    * Whether a session belongs to the project currently open in this window.
    * With no workspace folder open there is no project to scope by, so every
    * session is visible; otherwise only sessions recorded against that exact
-   * folder are shown (history follows the project, nothing is deleted).
+   * folder are shown (history follows the project, nothing is deleted). An
+   * isolated session's cwd is its worktree inside the repo, so scoping maps it
+   * back to the repository root first.
    */
   private inCurrentWorkspace(summary: SessionSummary): boolean {
-    return sameWorkspacePath(summary.cwd, this.currentWorkspaceCwd())
+    const cwd = this.worktrees.displayCwd(String(summary.sessionId), summary.cwd)
+    return sameWorkspacePath(cwd, this.currentWorkspaceCwd())
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
@@ -1357,6 +1446,15 @@ function queuedPromptView(item: QueuedInboxItem): QueuedPromptView {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
+}
+
+/**
+ * Mints a session id for A2 worktree isolation. The id is created before the
+ * session so the worktree can be laid out under it; the create RPC accepts a
+ * preallocated id and echoes it back.
+ */
+function newSessionId(): string {
+  return `dsh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

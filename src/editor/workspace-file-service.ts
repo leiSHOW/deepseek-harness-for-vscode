@@ -84,10 +84,10 @@ export class WorkspaceFileService implements vscode.Disposable {
     return attachments
   }
 
-  async open(request: OpenWorkspaceFileRequest): Promise<boolean> {
+  async open(request: OpenWorkspaceFileRequest, roots?: readonly string[]): Promise<boolean> {
     const indexed = request.id === undefined ? undefined : this.filesById.get(request.id)
     let uri = request.id === undefined
-      ? await resolveWorkspaceReference(request.path)
+      ? await resolveWorkspaceReference(request.path, roots)
       : indexed !== undefined && vscode.workspace.getWorkspaceFolder(indexed.uri) !== undefined ? indexed.uri : undefined
     // Bare names from model prose (e.g. `manifest.test.ts`) carry no directory
     // segments, so fall back to an exact basename lookup in the file index.
@@ -116,12 +116,12 @@ export class WorkspaceFileService implements vscode.Disposable {
    * existing indexed file (path match or exact bare-name match) are reported
    * resolved; everything else stays plain text in the transcript.
    */
-  async referenceExists(request: OpenWorkspaceFileRequest): Promise<boolean> {
+  async referenceExists(request: OpenWorkspaceFileRequest, roots?: readonly string[]): Promise<boolean> {
     const reference = request.path?.trim()
     if (reference === undefined || reference === '') return false
     const folders = vscode.workspace.workspaceFolders ?? []
     if (folders.length === 0) return false
-    const uri = await resolveWorkspaceReference(reference)
+    const uri = await resolveWorkspaceReference(reference, roots)
     if (uri !== undefined) return true
     const matches = matchBareFileName((await this.ensureIndex()).map((file) => file.view), reference)
     const match = matches[0] === undefined ? undefined : this.filesById.get(matches[0].id)
@@ -166,7 +166,7 @@ export class WorkspaceFileService implements vscode.Disposable {
   }
 }
 
-async function resolveWorkspaceReference(raw: string | undefined): Promise<vscode.Uri | undefined> {
+async function resolveWorkspaceReference(raw: string | undefined, roots?: readonly string[]): Promise<vscode.Uri | undefined> {
   const reference = raw?.trim()
   if (reference === undefined || reference === '' || reference.includes('\0')) return undefined
   const folders = vscode.workspace.workspaceFolders ?? []
@@ -180,12 +180,18 @@ async function resolveWorkspaceReference(raw: string | undefined): Promise<vscod
 
   const segments = reference.replaceAll('\\', '/').split('/').filter((segment) => segment !== '' && segment !== '.')
   if (segments.length === 0 || segments.includes('..')) return undefined
-  const matchingFolder = folders.length > 1 && segments[0] !== undefined
-    ? folders.find((folder) => folder.name === segments[0])
+  // Isolated sessions resolve relative references against their own worktree
+  // first (the copy the agent actually edited), then the workspace folders.
+  const rootCandidates = [
+    ...(roots ?? []).filter((root) => root !== ''),
+    ...folders.filter((folder) => folder.uri.scheme === 'file').map((folder) => folder.uri.fsPath),
+  ]
+  const matchingFolder = rootCandidates.length > 1 && segments[0] !== undefined
+    ? rootCandidates.find((root) => path.basename(root) === segments[0])
     : undefined
   const candidates = matchingFolder === undefined
-    ? folders.map((folder) => vscode.Uri.joinPath(folder.uri, ...segments))
-    : [vscode.Uri.joinPath(matchingFolder.uri, ...segments.slice(1))]
+    ? rootCandidates.map((root) => vscode.Uri.file(path.join(root, ...segments)))
+    : [vscode.Uri.file(path.join(matchingFolder, ...segments.slice(1)))]
   for (const candidate of candidates) {
     if (await existingFile(candidate) !== undefined) return candidate
   }
