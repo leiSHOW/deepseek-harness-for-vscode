@@ -12,31 +12,35 @@ import {
   components,
   elements,
   followStream,
+  interactionArmed,
   menuState,
   payload,
   post,
   searchTimer,
   setCurrentDetail,
   setFollowStream,
+  setInteractionArmed,
   setMenuState,
   setPayload,
   setSearchResults,
   setSearchTimer,
+  setWorkspaceFolderOpen,
   vscode,
 } from './context.js'
 import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
 import { cancelStickToBottom } from './messages.js'
+import { applyReferenceValidation, setReferenceValidator } from '../markdown.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
 import { isAtBottom, isNearBottom } from './utils.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
 
-// Streaming auto-follow yields to an intentional scroll-up: once the reader
-// moves away from the bottom the view stops being yanked down on every stream
-// frame, and only resumes following after they scroll all the way back to the
-// very bottom. Re-arming on the 100px "near bottom" probe would re-latch the
-// latch right after a small wheel-up and cause the up/down twitching.
+// Streaming auto-follow yields to any reach for the scrollbar. A mouse-down
+// arms the interaction (drag intent before the first scroll event), wheel-up
+// and touch-drag-up pause following immediately, and the pin only re-latches
+// on wheel-down at the bottom or touching the very bottom.
+elements.conversation.addEventListener('pointerdown', () => setInteractionArmed(true), { passive: true })
 elements.conversation.addEventListener('wheel', (event) => {
   if (event.deltaY < 0) {
     setFollowStream(false)
@@ -65,7 +69,11 @@ elements.conversation.addEventListener('scroll', () => {
     // view is already not following.
     setFollowStream(false)
   }
+  if (interactionArmed) setInteractionArmed(false)
 }, { passive: true })
+elements.conversation.addEventListener('pointerup', () => setInteractionArmed(false), { passive: true })
+elements.conversation.addEventListener('pointercancel', () => setInteractionArmed(false), { passive: true })
+elements.conversation.addEventListener('pointerleave', () => setInteractionArmed(false), { passive: true })
 
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'pluginState') {
@@ -77,6 +85,10 @@ window.addEventListener('message', (event) => {
       setSearchResults(event.data.results)
       renderSessions()
     }
+    return
+  }
+  if (event.data?.type === 'referenceValidation') {
+    applyReferenceValidation({ resolved: event.data.resolved ?? [], rejected: event.data.rejected ?? [] })
     return
   }
   if (event.data?.type === 'editorSelection') {
@@ -92,9 +104,13 @@ window.addEventListener('message', (event) => {
     return
   }
   if (event.data?.type !== 'state') return
+  setWorkspaceFolderOpen(event.data.workspaceFolderOpen === true)
   setPayload(event.data)
   render()
 })
+
+// Only references the Host confirmed as real workspace files become clickable.
+setReferenceValidator((keys) => post('validateFileReferences', { keys }))
 
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))

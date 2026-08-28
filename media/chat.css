@@ -146,6 +146,8 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .session-row.has-archive-action { padding-right: 76px; }
 /* One horizontal action strip per row, revealed on row hover/focus. */
 .session-row-actions {
+.session-row.has-worktree-action { padding-right: 30px; }
+.session-archive-action {
   position: absolute;
   top: 2px;
   right: 4px;
@@ -167,6 +169,26 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 /* Keyboard reachability: the strip is opacity:0 until hover/focus-within,
    so a tab-focused action must be visibly revealed without a hover state. */
 .session-archive-action:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+.session-worktree-action {
+  position: absolute;
+  top: 4px;
+  right: 30px;
+  opacity: 0;
+  pointer-events: none;
+}
+.session-row.has-archive-action.has-worktree-action { padding-right: 58px; }
+.session-row-wrap:hover .session-worktree-action,
+.session-row-wrap:focus-within .session-worktree-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-worktree-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
   border-radius: 6px;
@@ -518,6 +540,13 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 }
 @keyframes activity-verb-pulse { 50% { opacity: .5; } }
 .context-card pre { margin: 4px 7px 6px; white-space: pre-wrap; font: inherit; font-size: 11px; }
+/* Mode-switch carry-over card: collapsed by default so the previous
+   conversation stays out of sight until explicitly inspected. */
+.carried-context { margin-bottom: 4px; opacity: .92; }
+.carried-context summary { font-style: italic; color: var(--vscode-descriptionForeground); }
+.carried-context-body { max-height: 260px; margin: 0; padding: 8px; overflow: auto; background: var(--vscode-editor-background); font-size: 11px; line-height: 1.5; }
+.carried-context-body > :first-child { margin-top: 0; }
+.carried-context-body > :last-child { margin-bottom: 0; }
 .work-duration {
   margin-top: 5px;
   display: flex;
@@ -574,6 +603,36 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .todo-row.completed { color: var(--vscode-descriptionForeground); text-decoration: line-through; }
 .todo-row.in_progress .todo-check { color: var(--vscode-progressBar-background); }
 .todo-check { width: 12px; flex: none; }
+/* Live task-list card in the message stream (todo_write tool). */
+.todo-card summary .todo-progress {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-descriptionForeground) 14%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.todo-card summary .todo-progress.complete { color: var(--vscode-testing-iconPassed); }
+.todo-card .todo-list {
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px 6px;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-widget-border);
+}
+.todo-card .todo-list .todo-row { padding: 2px 3px; font-size: 11px; }
+.todo-card .todo-list .todo-row.in_progress .todo-text { color: var(--vscode-foreground); }
+.todo-card .todo-list .todo-row.completed .todo-text { opacity: .7; }
+.todo-card .todo-error {
+  margin: 0;
+  border-top: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-errorForeground);
+  white-space: pre-wrap;
+}
+.todo-text { min-width: 0; overflow-wrap: anywhere; }
 .timeline-row {
   width: 100%;
   padding: 7px 8px;

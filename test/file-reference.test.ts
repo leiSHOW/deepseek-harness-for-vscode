@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { fileExtension, findFileReferences, looksLikeWebUrl, parseFileReference } from '../src/webview/file-reference.js'
+import {
+  clearFileReferenceLedger,
+  fileExtension,
+  fileReferenceKey,
+  findFileReferences,
+  isRejectedFileReference,
+  isVerifiedFileReference,
+  looksLikeWebUrl,
+  markRejectedFileReferences,
+  markResolvedFileReferences,
+  parseFileReference,
+  referenceFromKey,
+} from '../src/webview/file-reference.js'
 
 describe('parseFileReference', () => {
   it('parses relative, absolute, Windows, and line-anchor references', () => {
@@ -25,6 +37,31 @@ describe('parseFileReference', () => {
 
   it('ignores root-level URL fragments such as /guide', () => {
     expect(parseFileReference('/guide')).toBeUndefined()
+  })
+
+  it('does not auto-link extensionless relative paths like dir/file', () => {
+    expect(parseFileReference('dir/file')).toBeUndefined()
+    expect(parseFileReference('approve/request-changes')).toBeUndefined()
+    expect(parseFileReference('docs/architecture')).toBeUndefined()
+    expect(parseFileReference('feature/foo')).toBeUndefined()
+    expect(parseFileReference('release/0.5.5')).toBeUndefined()
+    expect(findFileReferences('The change lives under dir/file, keep it there.')).toEqual([])
+    expect(findFileReferences('please approve/request-changes for the release')).toEqual([])
+  })
+
+  it('keeps extension, dotfile, and known extensionless references clickable', () => {
+    expect(parseFileReference('dir/file.ts')).toEqual({ path: 'dir/file.ts' })
+    expect(parseFileReference('src/ui/App.TSX:41:7')).toEqual({ path: 'src/ui/App.TSX', line: 41, column: 7 })
+    expect(parseFileReference('dir/.env')).toEqual({ path: 'dir/.env' })
+    expect(parseFileReference('dir/.gitignore')).toEqual({ path: 'dir/.gitignore' })
+    expect(parseFileReference('Makefile')).toEqual({ path: 'Makefile' })
+    expect(parseFileReference('README')).toEqual({ path: 'README' })
+  })
+
+  it('keeps positional anchors clickable even without an extension', () => {
+    expect(parseFileReference('dir/file:12')).toEqual({ path: 'dir/file', line: 12 })
+    expect(parseFileReference('dir/file:12:3')).toEqual({ path: 'dir/file', line: 12, column: 3 })
+    expect(parseFileReference('docs/guide#L4')).toEqual({ path: 'docs/guide', line: 4 })
   })
 })
 
@@ -71,5 +108,59 @@ describe('fileExtension', () => {
     expect(fileExtension('Makefile')).toBeUndefined()
     expect(fileExtension('src/dir.with.dot/')).toBeUndefined()
     expect(fileExtension('archive.tar.gz')).toBe('gz')
+  })
+})
+
+describe('fileReferenceKey round-trip', () => {
+  it('serializes any reference unambiguously, even paths containing pipes', () => {
+    const reference = { path: 'src/we|rd/edge-case.ts', line: 42, column: 7 }
+    const key = fileReferenceKey(reference)
+    expect(referenceFromKey(key)).toEqual(reference)
+  })
+
+  it('tolerates missing line/column and rejects malformed keys', () => {
+    expect(referenceFromKey(fileReferenceKey({ path: 'src/app.ts' }))).toEqual({ path: 'src/app.ts' })
+    expect(referenceFromKey('not-json')).toBeUndefined()
+    expect(referenceFromKey('["", null, null]')).toBeUndefined()
+    expect(referenceFromKey('[42, null, null]')).toBeUndefined()
+    expect(referenceFromKey('{}')).toBeUndefined()
+  })
+
+  it('ignores non-positive line/column values', () => {
+    expect(referenceFromKey('["a.ts", 0, null]')).toEqual({ path: 'a.ts' })
+    expect(referenceFromKey('["a.ts", 1.5, null]')).toEqual({ path: 'a.ts' })
+    expect(referenceFromKey('["a.ts", null, -2]')).toEqual({ path: 'a.ts' })
+  })
+})
+
+describe('existence ledger', () => {
+  it('tracks resolved and rejected references independently', () => {
+    clearFileReferenceLedger()
+    const a = fileReferenceKey({ path: 'src/a.ts' })
+    const b = fileReferenceKey({ path: 'src/b.ts' })
+    markResolvedFileReferences([a])
+    markRejectedFileReferences([b])
+    expect(isVerifiedFileReference(a)).toBe(true)
+    expect(isRejectedFileReference(a)).toBe(false)
+    expect(isVerifiedFileReference(b)).toBe(false)
+    expect(isRejectedFileReference(b)).toBe(true)
+  })
+
+  it('moves a reference between states when the host re-answers', () => {
+    clearFileReferenceLedger()
+    const key = fileReferenceKey({ path: 'src/a.ts' })
+    markRejectedFileReferences([key])
+    markResolvedFileReferences([key])
+    expect(isVerifiedFileReference(key)).toBe(true)
+    expect(isRejectedFileReference(key)).toBe(false)
+  })
+
+  it('clears everything for a session switch', () => {
+    clearFileReferenceLedger()
+    const key = fileReferenceKey({ path: 'src/a.ts' })
+    markResolvedFileReferences([key])
+    clearFileReferenceLedger()
+    expect(isVerifiedFileReference(key)).toBe(false)
+    expect(isRejectedFileReference(key)).toBe(false)
   })
 })

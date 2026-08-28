@@ -115,6 +115,24 @@ export function setFollowStream(value: boolean): void {
   followStream = value
 }
 
+/**
+ * A mouse-down on the conversation before a scroll signals "the reader is
+ * reaching for the viewport" — whether they end up dragging the scrollbar or
+ * selecting text. It clears the streaming pin immediately so the pointer
+ * never fights the auto-scroll; the bottom latch re-arms on real wheel-down
+ * or on touching the very bottom.
+ */
+export let interactionArmed = false
+export function setInteractionArmed(value: boolean): void {
+  interactionArmed = value
+}
+
+/** Whether this window has a workspace folder open (history is scoped per project). */
+export let workspaceFolderOpen = false
+export function setWorkspaceFolderOpen(value: boolean): void {
+  workspaceFolderOpen = value
+}
+
 export let pastedImages: readonly PastedImage[] = []
 export function setPastedImages(value: readonly PastedImage[]): void {
   pastedImages = value

@@ -14,6 +14,7 @@ import {
   selectorSignature,
   setSelectorSignature,
   t,
+  workspaceFolderOpen,
 } from './context.js'
 import { formatRelativeTime } from './utils.js'
 
@@ -32,7 +33,7 @@ export function renderSessions(): void {
     // new-conversation stub is hidden exactly like any other conversation.
     const canArchive = true
     const wrap = node('div', 'session-row-wrap')
-    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}`) as HTMLButtonElement
+    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}${session.isolated === true ? ' has-worktree-action' : ''}`) as HTMLButtonElement
     if (session.id === payload.state.active?.id) button.classList.add('active')
     const top = node('span', 'session-row-top')
     top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
@@ -83,6 +84,18 @@ export function renderSessions(): void {
       actions.append(action)
     }
     wrap.append(actions)
+    if (session.isolated === true) {
+      const action = node('button', 'icon-button compact session-worktree-action') as HTMLButtonElement
+      action.type = 'button'
+      action.title = t('worktreeActions')
+      action.setAttribute('aria-label', action.title)
+      action.textContent = '⑂'
+      action.addEventListener('click', (event) => {
+        event.stopPropagation()
+        post('worktreeAction', { sessionId: session.id })
+      })
+      wrap.append(action)
+    }
     fragment.append(wrap)
   }
   if (sessions.length === 0) {
@@ -94,8 +107,14 @@ export function renderSessions(): void {
     } else if (showingArchived && query !== '') {
       // Archived rows exist but none match the search query.
       fragment.append(node('p', 'muted-empty', t('noMatchingArchivedConversations')))
+    } else if (showingArchived) {
+      fragment.append(node('p', 'muted-empty', t('noArchivedConversations')))
+    } else if (query === '') {
+      // No conversations belong to this window's scope — either the project
+      // has no history yet, or no project is open at all.
+      fragment.append(node('p', 'muted-empty', t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')))
     } else {
-      fragment.append(node('p', 'muted-empty', showingArchived ? t('noArchivedConversations') : t('noMatchingConversations')))
+      fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
     }
   }
   elements.sessionList.replaceChildren(fragment)

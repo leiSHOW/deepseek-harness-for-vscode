@@ -141,6 +141,7 @@ function renderSessionStats(active: HarnessWorkbenchState['active']): void {
     `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
     `⏱ ${formatDuration(stats.durationMs)}`,
     ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
+    ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
   ]
   elements.sessionStats.textContent = parts.join(' · ')
   elements.sessionStats.classList.remove('hidden')

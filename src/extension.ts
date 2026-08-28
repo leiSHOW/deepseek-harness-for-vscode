@@ -4,6 +4,7 @@ import type { ConnectionSettingsInput } from './domain/connection-settings.js'
 import { DEEPSEEK_OFFICIAL_PROVIDER } from './domain/provider.js'
 import { EditorSelectionService } from './editor/editor-selection-service.js'
 import { WorkspaceFileService } from './editor/workspace-file-service.js'
+import { WorktreeService } from './editor/worktree-service.js'
 import { HarnessGatewayService } from './gateway/harness-gateway-service.js'
 import { DshPluginCatalogService } from './plugins/plugin-catalog.js'
 import { DshPluginCenterController } from './plugins/plugin-center-controller.js'
@@ -26,7 +27,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const resolver = new BundledRuntimeResolver(context, (message, ...args) => vscode.l10n.t(message, ...args))
   const connectionSettings = new ConnectionSettingsService(configuration, credentials)
   const runtime = new HarnessHostRuntime(context, configuration, resolver, output)
-  const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState)
+  const worktrees = new WorktreeService(context.globalState)
+  const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState, worktrees)
   const connectionTest = new ConnectionTestService(() => gateway.providerControlClient())
   const pluginManager = new DshPluginManager(context, resolver, output)
   try {
@@ -96,6 +98,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     configuration,
     runtime,
     gateway,
+    worktrees,
     pluginCenter,
     editorSelection,
     workspaceFiles,

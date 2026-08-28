@@ -17,10 +17,26 @@ vi.mock('vscode', () => ({
 }))
 
 import { HarnessGatewayService } from '../src/gateway/harness-gateway-service.js'
+import type { WorktreeService } from '../src/editor/worktree-service.js'
 import type { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
 import type { ConfigurationService } from '../src/config/configuration.js'
 import type { ConnectionSettingsService } from '../src/services/connection-settings-service.js'
 import type { Memento, OutputChannel } from 'vscode'
+
+/** A no-op worktree service so archive-overlay tests never touch git. */
+function stubWorktreeService(): WorktreeService {
+  return {
+    prepare: async () => ({ cwd: '', isolated: false }),
+    cleanupOrphans: async () => [],
+    recordFor: () => undefined,
+    repoRootFor: () => undefined,
+    displayCwd: (_sessionId: string, fallback: string | undefined) => fallback,
+    diffText: async () => undefined,
+    mergeBack: async () => ({ ok: false, message: 'stub' }),
+    discard: async () => ({ ok: false, message: 'stub' }),
+    dispose: () => undefined,
+  } as unknown as WorktreeService
+}
 
 /**
  * Builds a HarnessGatewayService whose internal client and archive state are
@@ -103,6 +119,7 @@ function createService(options: {
     connectionSettings,
     output,
     globalState,
+    stubWorktreeService(),
   ) as unknown as GatewayTestHarness
 
   // Seed the official archive set and baseline so the tests exercise the

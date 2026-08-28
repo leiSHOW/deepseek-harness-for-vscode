@@ -1,12 +1,15 @@
 import type { ActiveSessionView, ChatItem } from '../../domain/workbench-state.js'
-import { renderMarkdown } from '../markdown.js'
+import { splitCarriedBlocks } from '../../domain/carry-over.js'
+import { renderMarkdown, resetReferenceValidation } from '../markdown.js'
 import {
   components,
   elements,
   followStream,
+  interactionArmed,
   messageSignatures,
   node,
   optimisticBubbles,
+  payload,
   renderedSessionId,
   setOptimisticBubbles,
   setRenderedSessionId,
@@ -15,6 +18,7 @@ import {
   t,
 } from './context.js'
 import { markdownActions } from './markdown-actions.js'
+import { appendTodoRows, todoListSignature, todoProgress, type TodoEntry } from './todo-list.js'
 import type { OptimisticBubble } from './types.js'
 import {
   captureDisclosures,
@@ -33,11 +37,29 @@ export function cancelStickToBottom(): void {
   if (stickToBottomOnLoad) setStickToBottomOnLoad(false)
 }
 
+/**
+ * Instant scroll write: position restoration must not animate, otherwise the
+ * `scroll-behavior: smooth` container turns every state push into a glide
+ * that fights the reader's scrollbar.
+ */
+function setConversationScroll(top: number): void {
+  const conversation = elements.conversation
+  const previous = conversation.style.scrollBehavior
+  conversation.style.scrollBehavior = 'auto'
+  conversation.scrollTop = top
+  conversation.style.scrollBehavior = previous
+}
+
 export function renderMessages(active: ActiveSessionView | undefined): void {
   const realMessages = active?.messages || []
   const sessionId = active?.id || ''
   const sessionChanged = sessionId !== renderedSessionId
-  if (sessionChanged) setStickToBottomOnLoad(true)
+  if (sessionChanged) {
+    setStickToBottomOnLoad(true)
+    // A new transcript means a new existence ledger: verified references from
+    // the previous session must be re-checked before becoming clickable again.
+    resetReferenceValidation()
+  }
   if (sessionChanged && optimisticBubbles.length > 0) setOptimisticBubbles([])
   reconcileOptimistic(realMessages)
   const messages = [...realMessages, ...optimisticBubbles]
@@ -104,18 +126,25 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   for (const footer of Array.from(elements.messages.querySelectorAll<HTMLElement>('article.message:not(.assistant) .work-duration'))) {
     footer.remove()
   }
+  // Live todo cards: `todo/write` events change only the session's projected
+  // todos, never the tool item's own signature, so the reconciliation loop
+  // above would otherwise leave them stale. Refresh every card whose bound
+  // checklist diverged from the current session state.
+  refreshTodoCards(active?.todos ?? [])
   elements.empty.classList.toggle('hidden', messages.length > 0)
   const prepended = !sessionChanged && previousFirstId !== undefined
     && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
-  if (shouldStick) {
+  const pinnedInteraction = shouldStick && !interactionArmed
+  if (pinnedInteraction) {
     scrollConversationToBottom()
   } else if (prepended) {
-    elements.conversation.scrollTop = previousTop + elements.conversation.scrollHeight - previousHeight
+    // Anchor the pre-render position so history prepends don't shift the view.
+    setConversationScroll(previousTop + elements.conversation.scrollHeight - previousHeight)
   } else if (!stickToBottomOnLoad) {
     // Streaming below the viewport must not steal the reader's position, but
     // a freshly opened session must keep pinning to the bottom until its
     // load-scroll has actually landed.
-    elements.conversation.scrollTop = previousTop
+    setConversationScroll(previousTop)
   }
   // Keep forcing the bottom until the freshly opened session's transcript has
   // actually landed there. Clearing it as soon as messages exist lets the
@@ -150,7 +179,11 @@ function messageImageCount(item: ChatItem): number {
   return (item.blocks || []).filter((block) => block.kind === 'image').length
 }
 
-/** Drops optimistic bubbles whose real user/message has now surfaced (FIFO by content). */
+/** Drops optimistic bubbles whose real user/message has now surfaced (FIFO by content).
+ *
+ * A mode-switch carry-over payload rides inside the real message as a leading
+ * hidden block, so reconciliation compares against the visible remainder only.
+ */
 function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
   if (optimisticBubbles.length === 0) return
   const matched = new Set<string>()
@@ -160,7 +193,7 @@ function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
       !matched.has(message.id)
       && message.kind === 'message'
       && message.role === 'user'
-      && messageText(message) === bubble.text
+      && visibleUserText(message) === bubble.text
       && messageImageCount(message) === bubble.imageCount
     )
     const found = index === -1 ? undefined : realMessages[index]
@@ -168,6 +201,12 @@ function reconcileOptimistic(realMessages: readonly ChatItem[]): void {
     else matched.add(found.id)
   }
   setOptimisticBubbles(pending)
+}
+
+/** User-typed text of one chat item with any carried-over lead block stripped. */
+function visibleUserText(item: ChatItem): string {
+  const blocks = item.kind === 'message' && item.role === 'user' ? splitCarriedBlocks(item.blocks ?? []).rest : item.blocks ?? []
+  return blocks.filter((block) => block.kind === 'text').map((block) => block.text).join('\n').trim()
 }
 
 function latestConclusionId(messages: readonly ChatItem[]): string | undefined {
@@ -213,8 +252,15 @@ function renderMessage(item: ChatItem, conclusionId: string | undefined, running
   const article = node('article', `message ${item.role || ''}`)
   const label = node('div', 'message-label', item.role === 'user' ? t('you') : 'DeepSeek')
   article.append(label)
+  // A mode-switch carry-over payload rides as leading hidden text blocks:
+  // collapse them into one context card so the previous conversation stays
+  // out of sight but remains inspectable.
+  const carried = item.role === 'user' ? splitCarriedBlocks(item.blocks ?? []) : undefined
+  if (carried !== undefined && carried.carriedText !== '') {
+    article.append(renderCarriedContextCard(carried.carriedText, String(item.id)))
+  }
   const body = node('div', 'message-body')
-  components.streamingMessage.render(body, item)
+  components.streamingMessage.render(body, carried === undefined ? item : { ...item, blocks: carried.rest })
   article.append(body)
   // Every DeepSeek bubble carries its worked-time footer (it ticks while the
   // turn runs and freezes when done). The copy button belongs only to the
@@ -225,6 +271,7 @@ function renderMessage(item: ChatItem, conclusionId: string | undefined, running
 }
 
 function renderTool(item: ChatItem): HTMLElement {
+  if (isTodoTool(item.title)) return renderTodoCard(item)
   const container = node('div', 'tool-item')
   const details = node('details', `tool-card ${item.status || ''}`) as HTMLDetailsElement
   details.dataset.disclosureKey = 'tool'
@@ -268,6 +315,91 @@ function toolSectionLabel(label: string, tokens: number | undefined): HTMLElemen
     el.append(node('span', 'tool-tokens', t('toolTokens', { tokens: formatTokenCount(tokens) })))
   }
   return el
+}
+
+const TODO_TOOL_NAMES = new Set(['todo_write', 'todo', 'task'])
+
+function isTodoTool(name: string | undefined): boolean {
+  return TODO_TOOL_NAMES.has(String(name || '').trim().toLowerCase())
+}
+
+/**
+ * Renders a `todo_write` call as a live checklist card instead of a generic
+ * tool card: an expanded ○/●/☑ list with a `x/y` progress readout. The card is
+ * bound to the session's projected todos, so every later `todo/write` event
+ * refreshes it in place (see {@link refreshTodoCards}).
+ */
+function renderTodoCard(item: ChatItem): HTMLElement {
+  const container = node('div', 'tool-item')
+  const details = node('details', 'tool-card todo-card') as HTMLDetailsElement
+  details.dataset.disclosureKey = `todo-${String(item.id)}`
+  details.dataset.autoOpen = 'true'
+  const summary = node('summary')
+  summary.append(node('span', 'tool-status', '☑'), node('span', 'tool-title', t('taskList')))
+  const progress = node('span', 'todo-progress')
+  summary.append(progress)
+  details.append(summary)
+  const body = node('div', 'todo-list')
+  const todos = liveTodos(item)
+  body.dataset.todoSignature = todoListSignature(todos)
+  appendTodoRows(body, todos)
+  details.append(body)
+  // A failed write still surfaces its error under the checklist.
+  if (item.status === 'error' && item.result && item.result.trim() !== '') {
+    details.append(node('div', 'tool-detail todo-error', item.result))
+  }
+  container.append(details)
+  updateTodoProgress(details, todos)
+  if (item.workDuration !== undefined) components.workDuration.update(container, item.workDuration)
+  return container
+}
+
+/** The session's current todos, falling back to the card's own call payload. */
+function liveTodos(item: ChatItem): readonly TodoEntry[] {
+  const current = payload?.state.active?.todos
+  if (current !== undefined && current.length > 0) return current
+  return todosFromDetail(item.detail)
+}
+
+function todosFromDetail(detail: string | undefined): TodoEntry[] {
+  const trimmed = String(detail || '').trim()
+  if (!isJsonText(trimmed)) return []
+  try {
+    const parsed = JSON.parse(trimmed) as { todos?: unknown }
+    if (!Array.isArray(parsed.todos)) return []
+    return parsed.todos
+      .filter((entry): entry is TodoEntry => typeof entry === 'object' && entry !== null
+        && typeof (entry as TodoEntry).content === 'string'
+        && typeof (entry as TodoEntry).status === 'string')
+  } catch {
+    return []
+  }
+}
+
+function updateTodoProgress(details: HTMLDetailsElement, todos: readonly TodoEntry[]): void {
+  const progress = details.querySelector<HTMLElement>('.todo-progress')
+  if (progress === null) return
+  const { done, total } = todoProgress(todos)
+  progress.textContent = `${done}/${total}`
+  progress.classList.toggle('complete', total > 0 && done === total)
+}
+
+/**
+ * Refreshes every live todo card in the stream whose bound checklist diverged
+ * from the session's projected todos (a `todo/write` event landed). Called on
+ * every state render so progress and rows track the agent's plan in real time.
+ */
+function refreshTodoCards(todos: readonly TodoEntry[]): void {
+  const signature = todoListSignature(todos)
+  for (const details of Array.from(elements.messages.querySelectorAll<HTMLDetailsElement>('.todo-card'))) {
+    const body = details.querySelector<HTMLElement>('.todo-list')
+    if (body === null) continue
+    if (body.dataset.todoSignature === signature) continue
+    body.dataset.todoSignature = signature
+    body.replaceChildren()
+    appendTodoRows(body, todos)
+    updateTodoProgress(details, todos)
+  }
 }
 
 function toolDisplayName(name: string | undefined): string {
@@ -388,5 +520,16 @@ function renderContext(item: ChatItem): HTMLElement {
   details.append(node('summary', '', item.title || t('context')))
   const text = (item.blocks || []).map((block) => block.text).join('\n')
   details.append(node('pre', '', text))
+  return details
+}
+
+/** Collapsed transcript card holding the previous conversation's digest. */
+function renderCarriedContextCard(text: string, messageId: string): HTMLElement {
+  const details = node('details', `context-card carried-context`) as HTMLDetailsElement
+  details.dataset.disclosureKey = `carry-${messageId}`
+  details.append(node('summary', '', t('carriedContext')))
+  const body = node('div', 'carried-context-body markdown-body')
+  renderMarkdown(body, text, markdownActions)
+  details.append(body)
   return details
 }

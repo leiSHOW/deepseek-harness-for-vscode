@@ -11,10 +11,10 @@ import { createWorkDurationComponent } from '../work-duration/component.js'
 import { formatWorkDuration } from '../work-duration/format.js'
 import { renderComposer } from './composer-core.js'
 import { closeCommandMenu } from './command-menu.js'
-import { components, elements, followStream, payload, post, t } from './context.js'
+import { components, elements, followStream, interactionArmed, payload, post, t } from './context.js'
 import { markdownActions } from './markdown-actions.js'
 import { toggleHistory } from './sessions.js'
-import { formatTokenCount, isNearBottom } from './utils.js'
+import { formatTokenCount, isNearBottom, pinConversationToBottom } from './utils.js'
 
 const connectionTranslate = (key: string, values?: Record<string, string | number>): string =>
   t(key as Parameters<typeof t>[0], values)
@@ -76,7 +76,11 @@ components.streamingMessage = new StreamingMessageComponent({
     : t('thoughtForWithTokens', { duration: formatWorkDuration(elapsed), tokens: formatTokenCount(tokens) }),
   renderMarkdown: (target, source) => renderMarkdown(target, source, markdownActions),
   onStreamFrame: () => {
-    if (followStream && isNearBottom(elements.conversation)) elements.conversation.scrollTop = elements.conversation.scrollHeight
+    // A pending pointer interaction (scrollbar grab, text selection) pauses
+    // the pin so the reader's cursor never fights the auto-scroll.
+    if (followStream && !interactionArmed && isNearBottom(elements.conversation)) {
+      pinConversationToBottom()
+    }
   },
 })
 

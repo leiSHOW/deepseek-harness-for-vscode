@@ -5,7 +5,6 @@
  */
 export interface SessionMeta {
   readonly pinned?: boolean
-  readonly favorite?: boolean
   readonly tags?: readonly string[]
 }
 
@@ -13,20 +12,15 @@ export interface SessionMeta {
 export function readSessionMeta(value: unknown): SessionMeta | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const record = value as Record<string, unknown>
-  const meta: { pinned?: boolean; favorite?: boolean; tags?: readonly string[] } = {}
+  const meta: { pinned?: boolean; tags?: readonly string[] } = {}
   if (record.pinned === true) meta.pinned = true
-  if (record.favorite === true) meta.favorite = true
   const tags = normalizeTagList(record.tags)
   if (tags.length > 0) meta.tags = tags
-  return meta.pinned === undefined && meta.favorite === undefined && meta.tags === undefined ? undefined : meta
+  return meta.pinned === undefined && meta.tags === undefined ? undefined : meta
 }
 
 export function togglePinned(meta: SessionMeta | undefined): SessionMeta {
   return { ...meta, pinned: meta?.pinned !== true }
-}
-
-export function toggleFavorite(meta: SessionMeta | undefined): SessionMeta {
-  return { ...meta, favorite: meta?.favorite !== true }
 }
 
 export function setTags(meta: SessionMeta | undefined, tags: readonly string[]): SessionMeta {
@@ -48,11 +42,10 @@ export function normalizeTagList(value: unknown): readonly string[] {
   return result
 }
 
-/** Sorting score: pinned first, then favorites, newest first within a group. */
+/** Sorting score: pinned first, then newest first within the unpinned group. */
 export function metaSortRank(meta: SessionMeta | undefined): number {
   if (meta?.pinned === true) return 0
-  if (meta?.favorite === true) return 1
-  return 2
+  return 1
 }
 
 /** Whether a session passes the "pinned" history filter. */

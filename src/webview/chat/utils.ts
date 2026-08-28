@@ -49,11 +49,14 @@ export function isAtBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= 4
 }
 
+/**
+ * Instantly pins the conversation to its bottom, cancelling any in-flight
+ * smooth-scroll animation. `scroll-behavior: smooth` on the container would
+ * otherwise turn every streaming frame's position assert into a short
+ * animation that fights the reader's scrollbar drag.
+ */
 export function scrollConversationToBottom(): void {
   const conversation = elements.conversation
-  // Bypass `scroll-behavior: smooth` so the jump lands in the same frame; a
-  // smooth animation is interruptible by the catalog pushes that follow a
-  // session open, leaving the view stranded at the top.
   const previous = conversation.style.scrollBehavior
   conversation.style.scrollBehavior = 'auto'
   conversation.scrollTop = conversation.scrollHeight
@@ -63,6 +66,19 @@ export function scrollConversationToBottom(): void {
   window.requestAnimationFrame(() => {
     conversation.scrollTop = conversation.scrollHeight
   })
+}
+
+/**
+ * Streaming-frame pin that cancels in-flight smooth animations by temporarily
+ * switching the container to instant scrolling — the same guard used by
+ * {@link scrollConversationToBottom}, without the extra RAF re-assert.
+ */
+export function pinConversationToBottom(): void {
+  const conversation = elements.conversation
+  const previous = conversation.style.scrollBehavior
+  conversation.style.scrollBehavior = 'auto'
+  conversation.scrollTop = conversation.scrollHeight
+  conversation.style.scrollBehavior = previous
 }
 
 export function formatRelativeTime(time: number): string {

@@ -4,13 +4,13 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区开发版本 `0.5.5`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.1-rc.2`。
+> 当前为社区开发版本 `0.5.6`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.1-rc.2`。
 
 ## 功能
 
 - **原生 VS Code 工作台**：全部交互都在侧边栏完成；本地 Harness Gateway 只开放回环 API 传输，不再提供或嵌入官方 WebUI。
 - **可分离工作台**：可在编辑器区打开同步的对话面板，需要更大空间时可将其移到另一个 VS Code 窗口。
-- **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）；切换 DSH 模式时自动 fork 当前会话，上下文完整保留。
+- **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）；切换 DSH 模式时以新模式开启新会话，上一段上下文压缩为隐藏摘要随下一条消息携带。
 - **Markdown 流式回复**：支持标题、列表、表格、代码块、一键复制、安全外链及可点击跳转的工作区文件引用。
 - **稳定增量渲染**：流式更新保留推理/工具卡展开状态和用户滚动位置。
 - **对话步骤时间轴**：对话进行中在转录左侧贯穿一条时间轴脊柱，思考、工具、通知每个步骤落一个蓝点；对话结束后整条时间轴自动消失。

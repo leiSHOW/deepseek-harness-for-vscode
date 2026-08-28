@@ -17,13 +17,13 @@ export function parseFileReference(raw: string): FileReference | undefined {
   if (decoded === undefined || decoded === '' || hasExternalScheme(decoded) || looksLikeWebUrl(decoded)) return undefined
   const unwrapped = unwrap(decoded.replace(/^@/u, ''))
   const hash = /^(.*)#L(\d+)(?:C(\d+))?(?:-L\d+(?:C\d+)?)?$/iu.exec(unwrapped)
-  if (hash !== null) return result(hash[1], hash[2], hash[3])
+  if (hash !== null) return result(hash[1], hash[2], hash[3], true)
   const lineAndColumn = /^(.*):(\d+):(\d+)$/u.exec(unwrapped)
-  if (lineAndColumn !== null) return result(lineAndColumn[1], lineAndColumn[2], lineAndColumn[3])
+  if (lineAndColumn !== null) return result(lineAndColumn[1], lineAndColumn[2], lineAndColumn[3], true)
   const lineRange = /^(.*):(\d+)-\d+$/u.exec(unwrapped)
-  if (lineRange !== null) return result(lineRange[1], lineRange[2], undefined)
+  if (lineRange !== null) return result(lineRange[1], lineRange[2], undefined, true)
   const lineOnly = /^(.*):(\d+)$/u.exec(unwrapped)
-  if (lineOnly !== null) return result(lineOnly[1], lineOnly[2], undefined)
+  if (lineOnly !== null) return result(lineOnly[1], lineOnly[2], undefined, true)
   return looksLikeFile(unwrapped) ? { path: unwrapped } : undefined
 }
 
@@ -46,8 +46,8 @@ export function fileExtension(path: string): string | undefined {
   return /^[a-z0-9]{1,10}$/u.test(extension) ? extension : undefined
 }
 
-function result(path: string | undefined, line: string | undefined, column: string | undefined): FileReference | undefined {
-  if (path === undefined || !looksLikeFile(path)) return undefined
+function result(path: string | undefined, line: string | undefined, column: string | undefined, positional = false): FileReference | undefined {
+  if (path === undefined || !looksLikeFile(path, positional)) return undefined
   const parsedLine = positiveInteger(line)
   const parsedColumn = positiveInteger(column)
   return {
@@ -57,15 +57,29 @@ function result(path: string | undefined, line: string | undefined, column: stri
   }
 }
 
-function looksLikeFile(value: string): boolean {
+/**
+ * Whether a value plausibly names a real workspace file. Bare references must
+ * carry a file-shaped basename — an extension, a dotfile, or a known
+ * extensionless name — so prose like `dir/file`, `feature/foo`, or
+ * `release/0.5.5` is never auto-linked to a file that does not exist. A
+ * positional reference (with a line/column anchor) is treated as intentional
+ * even when the basename has no extension.
+ */
+function looksLikeFile(value: string, positional = false): boolean {
   if (value === '' || /[\n\r\t]/u.test(value) || value.endsWith('/')) return false
   // A root-level single segment (e.g. `/guide`) is a URL fragment left over
   // from prose, not a workspace file reference.
   if (value.startsWith('/') && !value.slice(1).includes('/') && !/\.\w+$/u.test(value)) return false
   const basename = value.split(/[\\/]/u).pop() ?? ''
-  return value.includes('/')
-    || value.includes('\\')
-    || /^\.?[\w@+-]+\.[a-z][a-z0-9._-]{0,15}$/iu.test(basename)
+  if (positional) {
+    return value.includes('/') || value.includes('\\') || looksLikeFileBasename(basename)
+  }
+  return looksLikeFileBasename(basename)
+}
+
+function looksLikeFileBasename(basename: string): boolean {
+  return /^\.?[\w@+-]+\.[a-z][a-z0-9._-]{0,15}$/iu.test(basename)
+    || /^\.\w[\w.-]*$/u.test(basename)
     || /^(?:Dockerfile|Makefile|Procfile|README|LICENSE)$/iu.test(basename)
 }
 
@@ -105,6 +119,85 @@ function positiveInteger(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   const parsed = Number.parseInt(value, 10)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+/** Stable identity for one reference, shared between DOM markers and the host round-trip. */
+export function fileReferenceKey(reference: FileReference): string {
+  return JSON.stringify([reference.path, reference.line ?? null, reference.column ?? null])
+}
+
+/** Rebuilds the exact reference a key encodes; used when promoting a verified marker. */
+export function referenceFromKey(key: string): FileReference | undefined {
+  try {
+    const parsed: unknown = JSON.parse(key)
+    if (!Array.isArray(parsed) || parsed.length !== 3 || typeof parsed[0] !== 'string' || parsed[0] === '') {
+      return undefined
+    }
+    const path = parsed[0]
+    const line = typeof parsed[1] === 'number' && Number.isSafeInteger(parsed[1]) && parsed[1] > 0 ? parsed[1] : undefined
+    const column = typeof parsed[2] === 'number' && Number.isSafeInteger(parsed[2]) && parsed[2] > 0 ? parsed[2] : undefined
+    return {
+      path,
+      ...(line === undefined ? {} : { line }),
+      ...(column === undefined ? {} : { column }),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Webview-side existence ledger: only references the Host confirmed as real
+ * workspace files may become clickable. Unknown candidates render as plain
+ * text until the host answers; confirmed-missing references stay plain text.
+ * The pending set prevents re-sending the same candidate on every streaming
+ * frame before the host has answered.
+ */
+const verifiedReferences = new Set<string>()
+const rejectedReferences = new Set<string>()
+const pendingReferences = new Set<string>()
+
+export function markResolvedFileReferences(keys: readonly string[]): void {
+  for (const key of keys) {
+    if (!verifiedReferences.has(key)) verifiedReferences.add(key)
+    rejectedReferences.delete(key)
+    pendingReferences.delete(key)
+  }
+}
+
+export function markRejectedFileReferences(keys: readonly string[]): void {
+  for (const key of keys) {
+    verifiedReferences.delete(key)
+    if (!rejectedReferences.has(key)) rejectedReferences.add(key)
+    pendingReferences.delete(key)
+  }
+}
+
+/** Marks candidates as already sent to the host, awaiting an answer. */
+export function markPendingFileReferences(keys: readonly string[]): void {
+  for (const key of keys) pendingReferences.add(key)
+}
+
+/** Whether a reference is safe to render as a clickable file link right now. */
+export function isVerifiedFileReference(key: string): boolean {
+  return verifiedReferences.has(key)
+}
+
+/** Whether the host already answered "not a workspace file" for this key. */
+export function isRejectedFileReference(key: string): boolean {
+  return rejectedReferences.has(key)
+}
+
+/** Whether a validation request for this key is already in flight. */
+export function isPendingFileReference(key: string): boolean {
+  return pendingReferences.has(key)
+}
+
+/** Drops every resolution record; session switches change which files exist. */
+export function clearFileReferenceLedger(): void {
+  verifiedReferences.clear()
+  rejectedReferences.clear()
+  pendingReferences.clear()
 }
 
 function unwrap(value: string): string {

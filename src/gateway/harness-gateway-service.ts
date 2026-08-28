@@ -20,6 +20,7 @@ import type {
 import type { PromptContentPart } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ConfigurationService } from '../config/configuration.js'
+import { buildCarryOverMessage, type CarryTurn } from '../domain/carry-over.js'
 import { projectionContextPressure } from '../domain/context-pressure.js'
 import { isPermissionPresetId, type PermissionPresetId } from '../domain/permissions.js'
 import { isProviderRouteInUse } from '../domain/provider.js'
@@ -36,6 +37,8 @@ import {
   type SessionMeta,
 } from '../domain/session-meta.js'
 import { projectSessionStats, projectionSessionStats } from '../domain/session-stats.js'
+import { sameWorkspacePath } from '../domain/workspace-scope.js'
+import type { WorktreeService } from '../editor/worktree-service.js'
 import {
   RESTORED_ARCHIVE_STATE_KEY,
   isEffectivelyArchived,
@@ -107,6 +110,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   private subagents: SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
   private projections: Record<string, unknown> = {}
+  /** Armed by a mode switch; consumed by the next prompt in its target session. */
+  private pendingCarryOver: { targetSessionId: string; message: string } | undefined
   private readonly labels = localizedWorkbenchLabels()
   private commands: readonly CommandEntry[] = projectionCommands(undefined, this.labels)
   private startTask: Promise<void> | undefined
@@ -130,7 +135,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private archiveBaselineLoaded = false
   /** Per-session reasoning-effort intent ('auto' is an extension-side layer). */
   private readonly effortIntents = new Map<string, EffortIntent>()
-  /** Locally-owned session metadata (pin / favorite / tags). */
+  /** Locally-owned session metadata (pin / tags). */
   private readonly metaBySession = new Map<string, SessionMeta>()
   /**
    * Configurations awaiting application, FIFO-aligned with the runtime queue:
@@ -151,6 +156,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     private readonly connectionSettings: ConnectionSettingsService,
     private readonly output: vscode.OutputChannel,
     private readonly globalState: vscode.Memento,
+    private readonly worktrees: WorktreeService,
   ) {
     this.restoredIds = new Set(readRestoredArchiveIds(globalState.get(RESTORED_ARCHIVE_STATE_KEY)))
     loadEffortIntents(globalState.get(EFFORT_INTENT_STATE_KEY), this.effortIntents)
@@ -199,6 +205,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       await this.connectionSettings.connect(this.client)
       this.startEventStreams()
       await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
+      // Sweep worktrees whose session no longer exists (crash between worktree
+      // add and session create, or a session removed out-of-band).
+      void this.cleanupOrphanWorktrees()
       const requested = this.activeSessionId
       const next = requested !== undefined && this.summaries.has(requested) && !this.isArchived(requested)
         ? requested
@@ -240,12 +249,13 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
+    const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
     const partitioned = partitionSessionLists(
-      this.orderedSummaries().map((summary) => {
-  const item = sessionListItem(summary, this.labels)
-  const meta = this.metaFor(String(summary.sessionId))
-  return meta === undefined ? item : { ...item, meta }
-}),
+      scoped.map((summary) => {
+        const item = this.sessionListItemWithIsolation(summary)
+        const meta = this.metaFor(String(summary.sessionId))
+        return meta === undefined ? item : { ...item, meta }
+      }),
       this.archivedIds,
       this.restoredIds,
     )
@@ -332,8 +342,29 @@ export class HarnessGatewayService implements vscode.Disposable {
     const client = this.requireClient()
     const config = this.configuration.get()
     const selectedPreset = agentPreset ?? config.agentPreset
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
-    const created = valueOf(await client.sessions.create({ cwd, agentPreset: selectedPreset }))
+    // A2 isolation: preallocate a session id so the worktree can be created
+    // under that id before the session exists, then hand the worktree path as
+    // the session cwd (the sandbox root). Non-git workspaces fall back to the
+    // shared workspace folder.
+    const sessionId = newSessionId()
+    const baseCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
+    const prepared = await this.worktrees.prepare(sessionId, baseCwd)
+    let created
+    try {
+      created = valueOf(await client.sessions.create({ cwd: prepared.cwd, sessionId: sessionId as SessionId, agentPreset: selectedPreset }))
+    } catch (cause) {
+      // Roll back the freshly created worktree so a failed create cannot leak it.
+      if (prepared.isolated) await this.worktrees.discard(sessionId).catch(() => undefined)
+      throw cause
+    }
+    if (!prepared.isolated && prepared.reason !== undefined) {
+      const note = prepared.reason === 'no-git-repo'
+        ? vscode.l10n.t('The workspace is not a git repository, so this session shares the workspace folder instead of an isolated worktree.')
+        : prepared.reason === 'detached-head'
+          ? vscode.l10n.t('The repository has no active branch (detached HEAD), so this session shares the workspace folder instead of an isolated worktree.')
+          : vscode.l10n.t('Could not create an isolated worktree for this session, so it shares the workspace folder.')
+      void vscode.window.showInformationMessage(note)
+    }
     if (agentPreset !== undefined) await this.configuration.setAgentPresetIfKnown(agentPreset)
     await this.refreshSessionList()
     await this.selectSession(String(created.sessionId))
@@ -344,56 +375,46 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /**
-   * Opens the "new session" a DSH-mode switch produces by forking the current
-   * one, so the previous context is carried over instead of lost.
-   *
-   * Harness locks a session's Agent Preset once it has a conversation and
-   * cannot seed a fresh session from another transcript, so the fork inherits
-   * the source preset; the requested preset is only applied when the fork is
-   * still blank (source had no completed turn). The effective preset is
-   * reported so the composer stays consistent with the session that opened.
+   * Condenses the active conversation right before a mode switch opens a
+   * fresh session: the digest rides as a hidden lead block on the next send
+   * (see domain/carry-over), so the new mode keeps the previous context.
    */
-  private async forkCarryingPreset(requestedPreset: string): Promise<string> {
+  private buildCarryOverForActiveSession(fromPreset: string, toPreset: string): string | undefined {
     const sourceId = this.requireActiveSession()
-    try {
-      const forked = valueOf(await this.requireClient().sessions.fork({
-        sessionId: sourceId as SessionId,
-      }))
-      await this.refreshSessionList()
-      await this.selectSession(String(forked.sessionId))
-      const summary = this.summaries.get(String(forked.sessionId))
-      if (summary?.blank === true) {
-        await this.selectPreset(requestedPreset)
-      } else {
-        // The fork already has a conversation, so its preset is fixed to the
-        // source's. Keep the configuration aligned with what actually opened.
-        const effectivePreset = summary?.agentPreset ?? this.configuration.get().agentPreset
-        await this.configuration.setAgentPresetIfKnown(effectivePreset)
-        this.output.appendLine(vscode.l10n.t(
-          '[gateway] DSH mode is fixed once a conversation starts; the forked session keeps preset "{0}" and carries the previous context.',
-          effectivePreset,
-        ))
-        void vscode.window.showInformationMessage(vscode.l10n.t(
-          'DeepSeek Harness: DSH mode is fixed once a conversation starts, so the new session carries your context under preset "{0}".',
-          effectivePreset,
-        ))
+    const turns: CarryTurn[] = []
+    let toolCalls = 0
+    for (const { event } of this.entries) {
+      if (event.type === 'user/message') {
+        const source = event.data.source
+        if (source.kind !== 'user') continue
+        turns.push({ role: 'user', text: carryEventText(event.data.content) })
+      } else if (event.type === 'assistant/message') {
+        turns.push({ role: 'assistant', text: carryEventText(event.data.message.content) })
+      } else if (event.type === 'tool/call') {
+        toolCalls += 1
       }
-      return String(forked.sessionId)
-    } catch (cause) {
-      // No completed turn to fork from (or the fork failed): fall back to the
-      // previous behavior so switching DSH mode still opens a session.
-      this.output.appendLine(vscode.l10n.t(
-        '[gateway] Could not fork the session to carry context ({0}); opening a fresh session instead.',
-        errorMessage(cause),
-      ))
-      return await this.createSession(requestedPreset)
     }
+    return buildCarryOverMessage({ sourceSessionId: sourceId, fromPreset, toPreset, turns, skippedToolCalls: toolCalls })
+  }
+
+  /** Peeks an armed carry-over payload without consuming it; cleared only after a successful send. */
+  private peekCarryOverFor(sessionId: string): string | undefined {
+    if (this.pendingCarryOver?.targetSessionId !== sessionId) return undefined
+    return this.pendingCarryOver.message
+  }
+
+  private clearCarryOver(sessionId: string): void {
+    if (this.pendingCarryOver?.targetSessionId === sessionId) this.pendingCarryOver = undefined
   }
 
   /**
    * Commits composer choices immediately before the next prompt. Harness locks
-   * an Agent Preset after a conversation starts, so changing DSH mode creates a
-   * fresh session while model/reasoning changes remain session-local.
+   * an Agent Preset after a conversation starts, so changing DSH mode opens a
+   * fresh session under the requested preset while model/reasoning changes
+   * remain session-local. A digest of the previous conversation is attached to
+   * the next outgoing message as a hidden lead block (collapsed into a context
+   * card in the transcript), keeping continuity without forking into a locked
+   * old preset.
    */
   async applyPromptConfiguration(selection: PromptConfiguration, signals?: PromptEffortSignals): Promise<void> {
     if (this.subagentAddress !== undefined) {
@@ -409,14 +430,18 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (transition === 'select-blank-session') {
         await this.selectPreset(selection.agentPreset)
       } else if (transition === 'create-session') {
-        // Harness fixes a session's Agent Preset once it has a conversation,
-        // and it cannot seed a new session from another transcript
-        // (session.create has no seed; session.fork inherits the source
-        // preset). Fork the current session so the new session carries the
-        // full previous context, then attempt the requested preset on the
-        // fork — the runtime keeps the source preset for a conversation that
-        // has already started.
-        sessionId = await this.forkCarryingPreset(selection.agentPreset)
+        // Snapshot the conversation BEFORE createSession() selects the fresh
+        // session and resets the entry cache.
+        const carried = this.buildCarryOverForActiveSession(currentPreset, selection.agentPreset)
+        sessionId = await this.createSession(selection.agentPreset)
+        if (carried !== undefined) {
+          this.pendingCarryOver = { targetSessionId: sessionId, message: carried }
+          this.output.appendLine(vscode.l10n.t(
+            '[gateway] Mode switch opened session {0} under preset "{1}"; the previous context rides with the next message.',
+            sessionId,
+            selection.agentPreset,
+          ))
+        }
       } else {
         await this.configuration.setAgentPresetIfKnown(selection.agentPreset)
       }
@@ -431,7 +456,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     const normalized = query.trim()
     if (normalized === '') return []
     const result = valueOf(await this.requireClient().sessions.search({ query: normalized }))
-    return result.items.map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
+    return result.items
+      .filter((item) => {
+        const summary = this.summaries.get(String(item.sessionId))
+        return summary !== undefined && this.inCurrentWorkspace(summary)
+      })
+      .map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
   }
 
   async selectSession(sessionId: string): Promise<void> {
@@ -599,17 +629,28 @@ export class HarnessGatewayService implements vscode.Disposable {
       deferredEntry = this.pendConfiguration(sessionId, { none: true })
     }
 
+    // Keep the legacy ordering: staged composer settings are applied before a
+    // registered slash command is executed, so commands observe that selection.
     if (this.subagentAddress === undefined && this.isRegisteredHostCommand(normalized)) {
       await this.executeHostCommand(normalized)
       return
     }
     // The preset-fork path may have selected a new session above.
     const target = this.requireActiveSession()
+    const ordinarySession = this.subagentAddress === undefined
 
     // Optimistic admission marker: a second prompt sent in the same tick must
     // see this session as busy even before the turn events arrive.
-    this.admittedSessions.add(target)
+    if (ordinarySession) this.admittedSessions.add(target)
+
+    // A mode-switch digest rides as its own leading text block so the
+    // transcript can collapse it (see the webview carry-over card) while the
+    // model still reads it before the attachments and the user's message. The
+    // payload stays armed until the ordinary-session send succeeds, so a
+    // failed submit can retry without losing the context.
+    const carried = ordinarySession ? this.peekCarryOverFor(target) : undefined
     const content: PromptContentPart[] = [
+      ...(carried === undefined ? [] : [{ type: 'text' as const, text: carried }]),
       ...attachments.map(attachmentPart),
       ...(normalized === '' ? [] : [{ type: 'text' as const, text: normalized }]),
     ]
@@ -632,11 +673,12 @@ export class HarnessGatewayService implements vscode.Disposable {
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }))
       }
+      if (ordinarySession) this.clearCarryOver(target)
     } catch (cause) {
       // The message never entered the queue: roll back the admission marker
       // and the pending slot so nothing is applied for a prompt that will
       // never run.
-      this.admittedSessions.delete(target)
+      if (ordinarySession) this.admittedSessions.delete(target)
       if (deferredEntry !== undefined) this.unpendConfiguration(sessionId, deferredEntry)
       throw cause
     }
@@ -774,11 +816,15 @@ export class HarnessGatewayService implements vscode.Disposable {
     // Commit the per-session intent only after the harness accepted the
     // change, so a failed RPC cannot leave a stale intent behind.
     if (reasoningEffort !== undefined && reasoningEffort !== '') {
-      this.effortIntents.set(sessionId, isAutoEffort(reasoningEffort) ? 'auto' : reasoningEffort as EffortIntent)
+      const candidate = new Map(this.effortIntents)
+      candidate.set(sessionId, isAutoEffort(reasoningEffort) ? 'auto' : reasoningEffort as EffortIntent)
       try {
-        await this.persistEffortIntents()
-      } catch (cause) {
-        this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session reasoning intent: {0}', errorMessage(cause)))
+        await this.persistEffortIntents(candidate)
+        this.effortIntents.clear()
+        for (const [key, value] of candidate) this.effortIntents.set(key, value)
+      } catch {
+        // The persistence helper logs the failure. Keep the previous in-memory
+        // intent so a failed write cannot make the UI claim a durable change.
       }
     }
     if (persist) {
@@ -813,12 +859,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const candidate = new Map(this.metaBySession)
     if (readSessionMeta(next) === undefined) candidate.delete(sessionId)
     else candidate.set(sessionId, next)
-    try {
-      await this.globalState.update(SESSION_META_STATE_KEY, Object.fromEntries(candidate))
-    } catch (cause) {
-      this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session metadata: {0}', errorMessage(cause)))
-      throw cause
-    }
+    await this.persistSessionMeta(candidate)
     this.metaBySession.clear()
     for (const [key, value] of candidate) this.metaBySession.set(key, value)
     this.fireChange()
@@ -1025,6 +1066,60 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /**
+   * Returns the unified diff between an isolated session's branch and its base
+   * branch, for the "Review diff" end-of-session action.
+   */
+  async worktreeDiff(sessionId: string): Promise<string | undefined> {
+    return this.worktrees.diffText(sessionId)
+  }
+
+  /** The worktree record for one session, if isolated (host-side triage reads it). */
+  worktreeRecord(sessionId: string): { readonly baseBranch: string; readonly branch: string } | undefined {
+    const record = this.worktrees.recordFor(sessionId)
+    return record === undefined ? undefined : { baseBranch: record.baseBranch, branch: record.branch }
+  }
+
+  /**
+   * The worktree root of the currently active session, when isolated. File
+   * references rendered for that conversation resolve against this root first,
+   * so links point at the copy the agent actually edited.
+   */
+  activeWorktreeRoot(): string | undefined {
+    return this.activeSessionId === undefined ? undefined : this.worktrees.recordFor(this.activeSessionId)?.worktreePath
+  }
+
+  /** Merges an isolated session's branch back into its base branch. */
+  async worktreeMerge(sessionId: string): Promise<{ ok: boolean; message: string }> {
+    const outcome = await this.worktrees.mergeBack(sessionId)
+    if (outcome.ok) {
+      await this.refreshSessionList()
+      this.fireChange()
+    }
+    return outcome
+  }
+
+  /** Removes an isolated session's worktree and branch; the session log stays. */
+  async worktreeDiscard(sessionId: string): Promise<{ ok: boolean; message: string }> {
+    const outcome = await this.worktrees.discard(sessionId)
+    if (outcome.ok) {
+      await this.refreshSessionList()
+      this.fireChange()
+    }
+    return outcome
+  }
+
+  /** Removes worktrees whose session no longer exists (deleted or crashed mid-create). */
+  async cleanupOrphanWorktrees(): Promise<string[]> {
+    const live = new Set(this.summaries.keys())
+    const removed = await this.worktrees.cleanupOrphans(live)
+    if (removed.length > 0) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Removed {0} orphaned worktree(s): {1}', removed.length, removed.join(', ')))
+      this.fireChange()
+    }
+    return removed
+  }
+
+  /**
    * Brings a Harness-archived session back to this workbench's default list.
    * The bundled runtime (0.1.1-rc.2) has no unarchive RPC, so restore is a
    * durable overlay on the official set.
@@ -1192,6 +1287,8 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.summaries.delete(removed)
       this.pendingConfigurations.delete(removed)
       this.admittedSessions.delete(removed)
+      if (this.effortIntents.delete(removed)) void this.persistEffortIntents().catch(() => undefined)
+      if (this.metaBySession.delete(removed)) void this.persistSessionMeta().catch(() => undefined)
     } else if (frame.type === 'host/archived-sessions-changed') {
       // A host snapshot is authoritative: establish the baseline before
       // installing the set so the sweep inside installArchivedIds treats the
@@ -1327,11 +1424,20 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
-  private async persistEffortIntents(): Promise<void> {
+  private async persistEffortIntents(source: ReadonlyMap<string, EffortIntent> = this.effortIntents): Promise<void> {
     try {
-      await this.globalState.update(EFFORT_INTENT_STATE_KEY, Object.fromEntries(this.effortIntents))
+      await this.globalState.update(EFFORT_INTENT_STATE_KEY, Object.fromEntries(source))
     } catch (cause) {
       this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session reasoning intent: {0}', errorMessage(cause)))
+      throw cause
+    }
+  }
+
+  private async persistSessionMeta(source: ReadonlyMap<string, SessionMeta> = this.metaBySession): Promise<void> {
+    try {
+      await this.globalState.update(SESSION_META_STATE_KEY, Object.fromEntries(source))
+    } catch (cause) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the session metadata: {0}', errorMessage(cause)))
       throw cause
     }
   }
@@ -1353,6 +1459,8 @@ export class HarnessGatewayService implements vscode.Disposable {
     return {
       promptTokens: prompt?.promptTokens ?? 0,
       attachmentCount: prompt?.attachmentCount ?? 0,
+      // Only the currently loaded history page (max 80 messages) is available
+      // here, so this heuristic is intentionally window-scoped.
       historyTurns: projectSessionStats(this.entries).turns,
     }
   }
@@ -1367,7 +1475,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private visibleSummaries(): SessionSummary[] {
-    return this.orderedSummaries().filter((summary) => !this.isArchived(String(summary.sessionId)))
+    return this.orderedSummaries().filter((summary) => !this.isArchived(String(summary.sessionId)) && this.inCurrentWorkspace(summary))
   }
 
   private async leaveArchivedSelection(): Promise<void> {
@@ -1379,6 +1487,12 @@ export class HarnessGatewayService implements vscode.Disposable {
       return
     }
     await this.createSession()
+  }
+
+  private sessionListItemWithIsolation(summary: SessionSummary): ReturnType<typeof sessionListItem> {
+    const item = sessionListItem(summary, this.labels)
+    if (this.worktrees.recordFor(String(summary.sessionId)) === undefined) return item
+    return { ...item, isolated: true }
   }
 
   private async refreshPresets(): Promise<void> {
@@ -1393,6 +1507,24 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (leftRank !== rightRank) return leftRank - rightRank
       return right.updatedAt - left.updatedAt
     })
+  }
+
+  /** The first workspace folder open in this window, or undefined when none is. */
+  private currentWorkspaceCwd(): string | undefined {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+  }
+
+  /**
+   * Whether a session belongs to the project currently open in this window.
+   * With no workspace folder open there is no project to scope by, so every
+   * session is visible; otherwise only sessions recorded against that exact
+   * folder are shown (history follows the project, nothing is deleted). An
+   * isolated session's cwd is its worktree inside the repo, so scoping maps it
+   * back to the repository root first.
+   */
+  private inCurrentWorkspace(summary: SessionSummary): boolean {
+    const cwd = this.worktrees.displayCwd(String(summary.sessionId), summary.cwd)
+    return sameWorkspacePath(cwd, this.currentWorkspaceCwd())
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
@@ -1600,6 +1732,15 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
+/**
+ * Mints a session id for A2 worktree isolation. The id is created before the
+ * session so the worktree can be laid out under it; the create RPC accepts a
+ * preallocated id and echoes it back.
+ */
+function newSessionId(): string {
+  return `dsh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? { ...value } : {}
 }
@@ -1610,6 +1751,19 @@ function mergeHistory(base: readonly HistoryEntry[], live: readonly HistoryEntry
   for (const entry of base) bySeq.set(entry.event.seq, entry)
   for (const entry of live) bySeq.set(entry.event.seq, entry)
   return [...bySeq.values()].sort((left, right) => left.event.seq - right.event.seq)
+}
+
+/** Joins one message's content blocks into plain text for the mode-switch carry-over digest. */
+function carryEventText(blocks: readonly unknown[]): string {
+  const output: string[] = []
+  for (const block of blocks) {
+    if (typeof block !== 'object' || block === null || !('type' in block)) continue
+    const record = block as Record<string, unknown>
+    if ((record.type === 'text' || record.type === 'reasoning') && typeof record.text === 'string') {
+      output.push(record.text)
+    }
+  }
+  return output.join('\n').trim()
 }
 
 function subagentView(entry: SubagentListEntry): SubagentView {

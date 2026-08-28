@@ -391,7 +391,9 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.effortSlider.max = String(Math.max(0, snapshot.reasoning.length - 1))
     this.effortSlider.step = '1'
     this.effortSlider.value = String(snapshot.effortIndex)
-    this.effortSlider.disabled = snapshot.reasoning.length <= 1 || !snapshot.input.editable
+    // Auto owns the selected tier; the slider remains at the last concrete
+    // detent for context but must not suggest that detent is being sent.
+    this.effortSlider.disabled = snapshot.autoActive || snapshot.reasoning.length <= 1 || !snapshot.input.editable
     this.effortSlider.setAttribute('aria-valuetext', effortLabel)
     const fraction = snapshot.reasoning.length <= 1
       ? 0

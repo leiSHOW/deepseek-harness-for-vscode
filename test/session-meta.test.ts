@@ -5,14 +5,13 @@ import {
   normalizeTagList,
   readSessionMeta,
   setTags,
-  toggleFavorite,
   togglePinned,
 } from '../src/domain/session-meta.js'
 
 describe('readSessionMeta', () => {
   it('extracts valid fields and drops invalid ones', () => {
     expect(readSessionMeta({ pinned: true, favorite: true, tags: ['x', ' x ', '', 3] }))
-      .toEqual({ pinned: true, favorite: true, tags: ['x'] })
+      .toEqual({ pinned: true, tags: ['x'] })
   })
 
   it('returns undefined for empty or invalid input', () => {
@@ -23,11 +22,9 @@ describe('readSessionMeta', () => {
 })
 
 describe('toggles', () => {
-  it('flips pinned and favorite independently', () => {
+  it('flips pinned state', () => {
     expect(togglePinned(undefined)).toEqual({ pinned: true })
     expect(togglePinned({ pinned: true })).toEqual({ pinned: false })
-    expect(toggleFavorite(undefined)).toEqual({ favorite: true })
-    expect(toggleFavorite({ favorite: true })).toEqual({ favorite: false })
   })
 
   it('sets and normalizes tags', () => {
@@ -36,10 +33,9 @@ describe('toggles', () => {
 })
 
 describe('ordering and filters', () => {
-  it('ranks pinned, then favorites, then the rest', () => {
+  it('ranks pinned before the rest', () => {
     expect(metaSortRank({ pinned: true })).toBe(0)
-    expect(metaSortRank({ favorite: true })).toBe(1)
-    expect(metaSortRank(undefined)).toBe(2)
+    expect(metaSortRank(undefined)).toBe(1)
   })
 
   it('detects a pinned session', () => {

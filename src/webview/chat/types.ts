@@ -32,6 +32,8 @@ export interface WebviewStatePayload {
   readonly state: HarnessWorkbenchState
   readonly configuration: HarnessConfiguration
   readonly connectionSettings: ConnectionSettingsState
+  /** Whether this window has a workspace folder open; history is scoped per project. */
+  readonly workspaceFolderOpen: boolean
   readonly fallbackOptions: {
     readonly sources: readonly FallbackOption[]
     readonly models: readonly FallbackOption[]
