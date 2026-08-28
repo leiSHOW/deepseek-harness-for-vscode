@@ -62,7 +62,8 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   }
   if (sessionChanged && optimisticBubbles.length > 0) setOptimisticBubbles([])
   reconcileOptimistic(realMessages)
-  const messages = [...realMessages, ...optimisticBubbles]
+  const running = active?.running ?? false
+  const messages = settleRunningDurations([...realMessages, ...optimisticBubbles], running)
   // Keep forcing the view to the bottom while a newly opened session is still
   // loading: selectSession first pushes an empty state (which would otherwise
   // scroll to the top), then the transcript arrives in a later state push.
@@ -77,7 +78,6 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   const previousHeight = elements.conversation.scrollHeight
   const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId
   const conclusionId = latestConclusionId(messages)
-  const running = active?.running ?? false
   // The step timeline spine only exists while a conversation is in flight;
   // once the turn ends the rail disappears from the finished transcript.
   elements.messages.classList.toggle('timeline-live', running)
@@ -177,6 +177,23 @@ export function messageText(item: ChatItem): string {
 
 function messageImageCount(item: ChatItem): number {
   return (item.blocks || []).filter((block) => block.kind === 'image').length
+}
+
+/**
+ * When the session is not running, any turn that never emitted a `turn/end`
+ * event (cancelled, interrupted, or an event that was dropped) would otherwise
+ * keep its worked-time footer ticking forever. Freeze those durations at the
+ * current time so the transcript settles once the agent is idle.
+ */
+function settleRunningDurations(messages: readonly ChatItem[], running: boolean): readonly ChatItem[] {
+  if (running) return messages
+  let changed = false
+  const settled = messages.map((item): ChatItem => {
+    if (item.workDuration === undefined || item.workDuration.endedAt !== undefined) return item
+    changed = true
+    return { ...item, workDuration: { ...item.workDuration, endedAt: Date.now() } }
+  })
+  return changed ? settled : messages
 }
 
 /** Drops optimistic bubbles whose real user/message has now surfaced (FIFO by content).

@@ -902,6 +902,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   bottom: calc(100% + 8px);
   z-index: 24;
   width: min(340px, calc(100% - 12px));
+  max-height: min(72vh, 480px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -917,8 +918,9 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 #configuration-source { min-width: 0; max-width: 112px; height: 24px; padding: 0 20px 0 6px; overflow: hidden; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border)); border-radius: 6px; text-overflow: ellipsis; font: inherit; font-size: 11px; }
 #configuration-source:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 #configuration-source:disabled { opacity: .65; }
-/* The panel sizes to its content; groups never make the user scroll. */
-.configuration-panel-scroll { min-height: 0; padding: 0 8px 8px; display: grid; gap: 7px; overflow-y: visible; overscroll-behavior: contain; }
+/* The panel caps its height; the group list scrolls instead of growing past
+   the viewport and making far options unreachable. */
+.configuration-panel-scroll { min-height: 0; padding: 0 8px 8px; display: grid; gap: 7px; overflow-y: auto; overscroll-behavior: contain; }
 .configuration-group { display: grid; gap: 4px; }
 .configuration-group h3 { margin: 0; }
 .configuration-group-toggle { width: 100%; padding: 2px 5px; display: flex; align-items: center; gap: 5px; color: color-mix(in srgb, var(--vscode-foreground) 88%, transparent); background: transparent; border: 0; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; text-align: left; cursor: pointer; }
@@ -932,9 +934,12 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .configuration-model-group .configuration-options { grid-template-columns: 1fr; gap: 4px; }
 /* Master-detail provider layout inside the Models group (only rendered when
    more than one provider is configured): provider tabs on the left rail,
-   the open provider's models in the right column. */
-.configuration-provider-layout { display: grid; grid-template-columns: minmax(0, 44%) minmax(0, 1fr); gap: 6px; align-items: start; }
-.configuration-provider-rail { display: grid; gap: 3px; align-content: start; }
+   the open provider's models in the right column. Both panes stretch to the
+   row height so each is always its own scroll container — a wheel over one
+   never moves the other (or the panel behind them). */
+.configuration-provider-layout { display: grid; grid-template-columns: minmax(0, 44%) minmax(0, 1fr); gap: 6px; align-items: stretch; max-height: 280px; overflow: hidden; }
+.configuration-provider-rail { display: grid; gap: 3px; align-content: start; min-height: 0; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.configuration-provider-models { display: grid; gap: 4px; align-content: start; min-height: 0; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .configuration-provider-tab {
   width: 100%;
   min-width: 0;
@@ -957,7 +962,6 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .configuration-provider-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .configuration-provider-current { min-width: 0; overflow: hidden; color: color-mix(in srgb, var(--vscode-foreground) 68%, transparent); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .configuration-provider-chevron { flex: none; margin-left: auto; color: var(--vscode-descriptionForeground); }
-.configuration-provider-models { display: grid; gap: 4px; align-content: start; }
 .configuration-option {
   width: 100%;
   min-width: 0;
@@ -988,6 +992,8 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .configuration-option.active .configuration-option-icon { color: inherit; }
 .configuration-option-copy { min-width: 0; display: grid; gap: 1px; }
 .configuration-option-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+/* Image-capability badge on model rows: sits inline after the model name. */
+.configuration-option-badge { display: inline-block; margin-left: 4px; padding: 0 4px; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); border-radius: 4px; font-size: 9px; line-height: 1.5; vertical-align: 1px; }
 .configuration-option-copy small { color: color-mix(in srgb, var(--vscode-foreground) 68%, transparent); line-height: 1.28; font-size: 11px; }
 .configuration-option-copy small.configuration-option-provider { color: #9b7cff; font-weight: 600; }
 .configuration-option.active .configuration-option-copy small { color: inherit; opacity: .78; }
@@ -1370,37 +1376,42 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .composer-bar {
   min-height: 38px;
   padding: 4px 6px 7px 8px;
-  display: grid;
-  grid-template-columns: max-content minmax(64px, 1fr) max-content;
-  grid-template-areas: 'tools meta actions';
+  display: flex;
   align-items: center;
-  gap: 5px 8px;
+  justify-content: space-between;
+  gap: 6px;
 }
-.composer-tools { grid-area: tools; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
-.composer-meta { grid-area: meta; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.composer-actions { grid-area: actions; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.text-button { min-height: 27px; padding: 4px 6px; color: var(--vscode-descriptionForeground); background: transparent; border: 0; border-radius: 8px; font-size: 11px; }
+.composer-tools { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.composer-meta { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.composer-actions { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.text-button { min-height: 27px; padding: 4px 6px; color: var(--vscode-descriptionForeground); background: transparent; border: 0; border-radius: 8px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 .text-button:hover, .text-button.active { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground); }
-.permission-picker { position: relative; }
+.permission-picker { position: relative; flex-shrink: 0; }
 .permission-toggle {
   min-width: 0;
   max-width: 138px;
   height: 27px;
-  padding: 2px 6px;
+  padding: 2px 10px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   color: var(--vscode-dropdown-foreground);
   background: var(--vscode-dropdown-background);
-  border: 1px solid var(--vscode-dropdown-border, transparent);
-  border-radius: 8px;
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-widget-border));
+  border-radius: 999px;
   font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
-.permission-toggle:hover, .permission-toggle.active { color: var(--vscode-foreground); background-color: var(--vscode-toolbar-hoverBackground); }
+.permission-toggle:hover, .permission-toggle.active { color: var(--vscode-foreground); background-color: var(--vscode-toolbar-hoverBackground); border-color: var(--vscode-focusBorder); }
+.permission-toggle.danger, .permission-toggle.danger:hover { color: var(--vscode-inputValidation-warningForeground, #e2c08d); border-color: color-mix(in srgb, var(--vscode-inputValidation-warningBorder, #cca700) 55%, transparent); background-color: color-mix(in srgb, var(--vscode-inputValidation-warningBackground, #cca700) 14%, var(--vscode-dropdown-background)); }
+.permission-toggle.danger .permission-toggle-icon { color: var(--vscode-inputValidation-warningForeground, #e2c08d); }
 .permission-toggle:disabled { opacity: .55; cursor: default; }
-.permission-toggle-icon { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.permission-toggle-icon { color: var(--vscode-descriptionForeground); font-size: 10px; }
 .permission-toggle-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.permission-toggle-chevron { margin-left: auto; color: var(--vscode-descriptionForeground); font-size: 9px; }
+.permission-toggle-chevron { margin-left: auto; color: var(--vscode-descriptionForeground); font-size: 10px; transition: transform 140ms ease; }
+.permission-toggle.active .permission-toggle-chevron { transform: rotate(180deg); }
 .permission-popup {
   position: absolute;
   left: 0;
@@ -1472,9 +1483,16 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 2px 6px;
   color: var(--vscode-descriptionForeground);
+  background: none;
+  border: none;
+  border-radius: 7px;
   font-size: 10px;
+  cursor: pointer;
 }
+.context-meter:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.context-meter:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .context-meter[data-level='warning'] { --context-color: var(--vscode-charts-yellow, #d9a441); }
 .context-meter[data-level='critical'] { --context-color: var(--vscode-charts-red, #e05252); }
 .context-meter-ring { width: 18px; height: 18px; position: relative; display: block; background: conic-gradient(var(--context-color) var(--context-progress), color-mix(in srgb, var(--vscode-descriptionForeground) 24%, transparent) 0); border-radius: 50%; transition: background 180ms ease; }
@@ -1639,8 +1657,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   .composer-meta { justify-content: flex-start; }
   .composer-status { text-align: left; }
   .permission-toggle { max-width: min(138px, 40vw); }
-  /* Keep the token stats, ring and compact button grouped on the left of the
-     second row instead of stretching the status text across the row. */
+  /* Keep the status text compact instead of stretching across the row. */
   .composer-status { flex: 0 1 auto; }
 }
 
@@ -1684,22 +1701,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 ::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, rgba(127, 127, 127, .6)); }
 ::-webkit-scrollbar-thumb:active { background: var(--vscode-scrollbarSlider-activeBackground, rgba(127, 127, 127, .7)); }
 
-/* Phase 0: session export + compact */
-.compact-button {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  border: none;
-  background: none;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
-  font-size: 10px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-.compact-button:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+/* Phase 0: session export */
 
 .session-stats {
   color: var(--vscode-descriptionForeground);
@@ -1708,6 +1710,16 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Cumulative token flow (↑ in / ↓ out), pinned to the session heading's right edge. */
+.session-usage {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .session-mark {

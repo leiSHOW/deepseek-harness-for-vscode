@@ -15,7 +15,7 @@ describe('ConnectionTestService', () => {
       baseUrl: 'https://relay.example/v1',
       apiKey: '',
       models: [],
-    })).resolves.toEqual({ status: 'success', modelCount: 1 })
+    })).resolves.toEqual({ status: 'success', modelCount: 1, models: [{ id: 'deepseek-v4-pro' }] })
     expect(discoverModels).toHaveBeenCalledWith({
       settingsNs: 'llm-pi-ai',
       provider: 'packycode',

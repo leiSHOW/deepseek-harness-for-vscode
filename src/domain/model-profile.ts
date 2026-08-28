@@ -1,3 +1,4 @@
+import { supportsImageInput } from './model-modalities.js'
 import type { AutoEffortSignals } from './session-effort.js'
 
 /**
@@ -77,27 +78,35 @@ const FALLBACK_ORDER: Readonly<Record<ModelSpeed, readonly ModelSpeed[]>> = {
  * the task signals. Stability rule: the currently selected model is kept
  * whenever it already belongs to the preferred tier — light/normal tasks never
  * bounce between models on every keystroke, and heavy tasks only escalate to a
- * deep-reasoning model when one exists.
+ * deep-reasoning model when one exists. A prompt carrying images only ever
+ * considers image-capable models, so auto never switches onto a text-only
+ * route the admission check would reject.
  */
 export function pickAutoModel(
   models: readonly ModelProfileInput[],
   currentId: string | undefined,
   signals: AutoEffortSignals,
 ): string | undefined {
-  if (models.length === 0) return currentId
+  // A prompt carrying images must stay on an image-capable model: the harness
+  // admission check rejects image content on text-only routes, so an auto
+  // switch to one would break the prompt the user just sent.
+  const candidates = (signals.imageCount ?? 0) > 0
+    ? models.filter((model) => supportsImageInput(model.id))
+    : models
+  if (candidates.length === 0) return currentId
 
   const weight = taskWeight(signals)
   const preferred = preferredTier(weight)
 
   // Normal tasks are never worth a model switch: keep the current selection
   // unless it is no longer advertised by the provider.
-  if (weight === 'normal' && currentId !== undefined && models.some((model) => model.id === currentId)) {
+  if (weight === 'normal' && currentId !== undefined && candidates.some((model) => model.id === currentId)) {
     return currentId
   }
 
   // Group by speed tier.
   const byTier = new Map<ModelSpeed, ModelProfileInput[]>()
-  for (const model of models) {
+  for (const model of candidates) {
     const tier = modelSpeed(model.id, model.reasoning?.efforts)
     const bucket = byTier.get(tier)
     if (bucket === undefined) byTier.set(tier, [model])

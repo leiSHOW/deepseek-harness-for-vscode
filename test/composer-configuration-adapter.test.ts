@@ -70,6 +70,25 @@ describe('composer configuration adapter', () => {
     expect(result?.presets.map((preset) => preset.id)).toEqual(['standard', 'code'])
   })
 
+  it('flags image-capable models so the picker can badge them', () => {
+    const live = composerConfigurationInput(payload({
+      models: [
+        { provider: 'deepseek-official', providerName: 'DeepSeek', id: 'deepseek-v4-flash-vision-exp', name: 'Vision', reasoning: [] },
+        { provider: 'deepseek-official', providerName: 'DeepSeek', id: 'deepseek-v4-flash', name: 'Flash', reasoning: [] },
+      ],
+    }))
+    expect(live?.models.map((model) => model.imageInput === true)).toEqual([true, false])
+
+    const fallback = composerConfigurationInput(payload({ models: [] }, { presets: [] }, {
+      models: [
+        { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+        { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision (Exp)' },
+      ],
+    }))
+    expect(fallback?.models.find((model) => model.id === 'deepseek-v4-flash-vision-exp')?.imageInput).toBe(true)
+    expect(fallback?.models.find((model) => model.id === 'deepseek-v4-flash')?.imageInput).toBeUndefined()
+  })
+
   it('uses the live Harness catalog so models from every provider appear automatically', () => {
     const result = composerConfigurationInput(payload({
       models: [

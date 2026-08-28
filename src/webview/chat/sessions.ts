@@ -1,7 +1,7 @@
 import type { ActiveSessionView, PermissionView } from '../../domain/workbench-state.js'
-import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
+import { FULL_ACCESS_PERMISSION_ID, PERMISSION_PRESET_IDS } from '../../domain/permissions.js'
 import { composerConfigurationInput } from '../composer-configuration/adapter.js'
-import { permissionSelectOptions } from '../permission/adapter.js'
+import { permissionSelectOptions, type PermissionSelectOption } from '../permission/adapter.js'
 import { clearPastedImages } from './images.js'
 import { closeTimeline } from './timeline.js'
 import {
@@ -160,6 +160,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
     renderPermissionOptions(permissions)
     elements.permission.classList.remove('hidden')
     elements.permissionToggle.disabled = active?.running === true || payload.state.phase !== 'connected'
+    elements.permissionToggle.classList.toggle('danger', permissions.currentValue === FULL_ACCESS_PERMISSION_ID)
   } else {
     elements.permission.classList.add('hidden')
     closePermissionPopup()
@@ -167,7 +168,8 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
 }
 
 function renderPermissionOptions(permissions: PermissionView): void {
-  const options = permissionSelectOptions(permissions)
+  const runtimeOptions = permissionSelectOptions(permissions)
+  const options = mergePermissionOptions(runtimeOptions, permissions.currentValue)
   const selected = options.find((option) => option.id === permissions.currentValue)
   elements.permissionToggleLabel.textContent = selected?.label ?? permissions.currentValue
   const fragment = document.createDocumentFragment()
@@ -204,6 +206,31 @@ function renderPermissionOptions(permissions: PermissionView): void {
     fragment.append(button)
   }
   elements.permissionOptions.replaceChildren(fragment)
+}
+
+/**
+ * The Harness runtime projection may arrive with only a `currentValue` and no
+ * `options` list (older builds / some providers). The extension always offers
+ * the three sandbox presets, so merge the runtime options with a static
+ * fallback list to keep the selector usable.
+ */
+function mergePermissionOptions(
+  runtimeOptions: readonly PermissionSelectOption[],
+  currentValue: string,
+): readonly PermissionSelectOption[] {
+  const fallback: readonly PermissionSelectOption[] = PERMISSION_PRESET_IDS.map((id) => ({
+    id,
+    label: id,
+    disabled: false,
+  }))
+  const map = new Map<string, PermissionSelectOption>()
+  for (const option of runtimeOptions) map.set(option.id, option)
+  for (const option of fallback) if (!map.has(option.id)) map.set(option.id, option)
+  const options = [...map.values()]
+  if (!options.some((option) => option.id === currentValue)) {
+    options.push({ id: currentValue, label: currentValue, disabled: false })
+  }
+  return options
 }
 
 export function togglePermissionPopup(): void {

@@ -11,12 +11,15 @@ export interface ContextMeterComponent {
 interface ComponentOptions {
   readonly document: Document
   readonly translate: Translate
+  /** Fired when the meter is clicked; the meter doubles as the compact control. */
+  readonly onCompact: () => void
 }
 
 /** Renders context occupancy independently from cumulative token accounting. */
 export function createContextMeterComponent(options: ComponentOptions): ContextMeterComponent {
-  const root = requiredElement<HTMLElement>(options.document, 'context-meter')
+  const root = requiredElement<HTMLButtonElement>(options.document, 'context-meter')
   const value = requiredElement<HTMLElement>(options.document, 'context-meter-value')
+  root.addEventListener('click', options.onCompact)
   return {
     update: (pressure) => {
       if (pressure === undefined) {
@@ -31,11 +34,14 @@ export function createContextMeterComponent(options: ComponentOptions): ContextM
         limit: formatTokenCount(usage.contextWindow),
         percent,
       })
+      // The ring is now the compact trigger, so its tooltip leads with the
+      // action and carries the occupancy summary as the secondary line.
+      const title = `${options.translate('compact')} · ${summary}`
       root.classList.remove('hidden')
       root.dataset.level = usage.percent >= 90 ? 'critical' : usage.percent >= 70 ? 'warning' : 'normal'
       root.style.setProperty('--context-progress', `${usage.percent}%`)
-      root.title = summary
-      root.setAttribute('aria-label', summary)
+      root.title = title
+      root.setAttribute('aria-label', title)
       value.textContent = `${percent}%`
     },
   }

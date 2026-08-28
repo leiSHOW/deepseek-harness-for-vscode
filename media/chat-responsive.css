@@ -98,8 +98,6 @@ body {
  * meta and actions shrink and ellipsize instead of wrapping onto new lines. */
 @media (max-width: 680px) {
   .composer-bar {
-    grid-template-columns: minmax(0, auto) minmax(0, 1fr) max-content;
-    grid-template-areas: 'tools meta actions';
     gap: 5px 6px;
   }
 
@@ -134,12 +132,6 @@ body {
 @media (max-width: 360px) {
   .composer-shell {
     margin-inline: 5px;
-  }
-
-  .composer-bar {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    grid-template-areas: 'tools actions';
-    row-gap: 3px;
   }
 
   .composer-meta {

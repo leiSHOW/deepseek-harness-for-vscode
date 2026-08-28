@@ -31,10 +31,19 @@ export interface ConnectionSettingsInput {
 
 export type ConnectionTestStatus = 'success' | 'unreachable' | 'unsupported'
 
+/** One advertised model the endpoint listed, with any disclosed capacity. */
+export interface DiscoveredModel {
+  readonly id: string
+  readonly contextWindow?: number
+  readonly maxTokens?: number
+}
+
 export interface ConnectionTestResult {
   readonly status: ConnectionTestStatus
   readonly detail?: string
   readonly modelCount?: number
+  /** Models the endpoint advertised on success; the form adopts them verbatim. */
+  readonly models?: readonly DiscoveredModel[]
 }
 
 export const NEW_PROVIDER = '__new__'

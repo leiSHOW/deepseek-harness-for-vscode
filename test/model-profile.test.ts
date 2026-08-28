@@ -95,4 +95,19 @@ describe('pickAutoModel', () => {
   it('returns the current model for an empty catalog', () => {
     expect(pickAutoModel(models([]), 'deepseek-v4-flash', heavy)).toBe('deepseek-v4-flash')
   })
+
+  it('never switches an image prompt onto a text-only model', () => {
+    const vision = { id: 'deepseek-v4-flash-vision-exp', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }
+    const withImage = { ...heavy, attachmentCount: 1, imageCount: 1 }
+    // Heavy image prompt: without the guard this would escalate to v4-pro,
+    // whose text-only route the admission check then rejects.
+    expect(pickAutoModel(models([flash, pro, vision]), 'deepseek-v4-flash-vision-exp', withImage))
+      .toBe('deepseek-v4-flash-vision-exp')
+    expect(pickAutoModel(models([flash, pro, vision]), undefined, withImage))
+      .toBe('deepseek-v4-flash-vision-exp')
+    // No image-capable route at all: keep the selection instead of switching.
+    expect(pickAutoModel(models([flash, pro]), 'deepseek-v4-flash', withImage)).toBe('deepseek-v4-flash')
+    // Without images the filter does not apply.
+    expect(pickAutoModel(models([flash, pro, vision]), 'deepseek-v4-flash', heavy)).toBe('deepseek-v4-pro')
+  })
 })

@@ -28,6 +28,7 @@ export const elements: ChatElements = {
   historyArchived: byId<HTMLButtonElement>('history-archived'),
   exportSession: byId<HTMLElement>('export-session'),
   sessionStats: byId<HTMLElement>('session-stats'),
+  sessionUsage: byId<HTMLElement>('session-usage'),
   permission: byId<HTMLElement>('permission'),
   permissionToggle: byId<HTMLButtonElement>('permission-toggle'),
   permissionToggleLabel: byId<HTMLElement>('permission-toggle-label'),
@@ -70,7 +71,6 @@ export const elements: ChatElements = {
   send: byId<HTMLButtonElement>('send'),
   composerStatus: byId<HTMLElement>('composer-status'),
   activityStatus: byId<HTMLElement>('activity-status'),
-  compact: byId<HTMLElement>('compact'),
   queuedPanel: byId<HTMLElement>('queued-panel'),
 }
 

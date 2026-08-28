@@ -1,38 +1,25 @@
-import type { TokenUsageView } from '../domain/workbench-state.js'
-import { formatTokenCount } from './token-format.js'
-
 export interface ComposerStatusInput {
   readonly running: boolean
   readonly subagentMode?: 'one-shot' | 'continuable'
-  readonly tokenUsage?: TokenUsageView
 }
 
 export interface ComposerStatusLabels {
   readonly oneShotReadOnly: string
-  readonly runningQueue: string
   readonly continuableSubagent: string
 }
 
-/** Builds status text without repeating the model already shown by the picker. */
+/**
+ * Builds status text without repeating the model already shown by the picker.
+ * Token flow (↑ in / ↓ out) is rendered by the session heading's usage pill,
+ * and the running state shows no status line (the send button already flips
+ * to ■ with a stop hint).
+ */
 export function composerStatusText(
   input: ComposerStatusInput | undefined,
   labels: ComposerStatusLabels,
 ): string {
   if (input === undefined) return ''
-  const segments: string[] = []
-  if (input.subagentMode === 'one-shot') segments.push(labels.oneShotReadOnly)
-  else if (input.running) segments.push(labels.runningQueue)
-  else if (input.subagentMode === 'continuable') segments.push(labels.continuableSubagent)
-
-  const usage = tokenUsageText(input.tokenUsage)
-  if (usage !== '') segments.push(usage)
-  return segments.join(' · ')
-}
-
-function tokenUsageText(usage: TokenUsageView | undefined): string {
-  if (usage === undefined) return ''
-  const input = usage.uncachedInputTokens + usage.cacheReadTokens
-  const output = usage.outputTokens
-  if (input === 0 && output === 0) return ''
-  return `↑${formatTokenCount(input)} / ↓${formatTokenCount(output)}`
+  if (input.subagentMode === 'one-shot') return labels.oneShotReadOnly
+  if (input.subagentMode === 'continuable') return labels.continuableSubagent
+  return ''
 }

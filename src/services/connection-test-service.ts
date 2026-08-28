@@ -30,7 +30,15 @@ export class ConnectionTestService {
       if (response.result.value.models.length === 0) {
         return { status: 'unreachable', detail: 'The endpoint returned an empty model catalog.' }
       }
-      return { status: 'success', modelCount: response.result.value.models.length }
+      return {
+        status: 'success',
+        modelCount: response.result.value.models.length,
+        models: response.result.value.models.map((model) => ({
+          id: model.id,
+          ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+          ...(model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens }),
+        })),
+      }
     } catch (cause) {
       return { status: 'unreachable', detail: cause instanceof Error ? cause.message : String(cause) }
     }

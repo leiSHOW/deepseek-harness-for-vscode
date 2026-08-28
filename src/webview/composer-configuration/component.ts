@@ -268,17 +268,18 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const { translate: t } = this.options
     this.toggle.disabled = !snapshot.input.connected || !snapshot.input.editable
     if (this.toggle.disabled) this.close()
-    // Auto mode: the toggle leads with the mode and shows the model the last
-    // Auto send actually landed on (it follows model switches in real time).
+    // Auto mode: the model and effort are both chosen per task at send time,
+    // so the toggle leads with the mode and never shows a concrete model name
+    // (the Auto picker would otherwise claim a fixed model that is not fixed).
     if (snapshot.autoActive) {
       this.toggleModel.textContent = t('autoMode')
-      this.toggleMode.textContent = snapshot.model.label
+      this.toggleMode.textContent = t('effortAuto')
     } else {
-      this.toggleModel.textContent = snapshot.model.label
+      this.toggleModel.textContent = shortModelLabel(snapshot.model.label)
       this.toggleMode.textContent = snapshot.effort.label
     }
     this.toggle.title = snapshot.autoActive
-      ? t('configurationSummaryAuto', { model: snapshot.model.label })
+      ? t('configurationSummaryAuto')
       : t('configurationSummary', {
         model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
         mode: snapshot.preset.label,
@@ -311,7 +312,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   }
 
   private renderModels(snapshot: ComposerConfigurationSnapshot): void {
-    this.modelsCurrent.textContent = snapshot.model.label
+    this.modelsCurrent.textContent = snapshot.autoActive ? this.options.translate('autoMode') : snapshot.model.label
     const fragment = this.options.document.createDocumentFragment()
     const groups = new Map<string, ModelConfigurationOption[]>()
     for (const model of snapshot.input.models) {
@@ -364,7 +365,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     if (selected !== undefined && !open) {
       const current = this.options.document.createElement('span')
       current.className = 'configuration-provider-current'
-      current.textContent = selected.label
+      current.textContent = snapshot.autoActive ? this.options.translate('autoMode') : selected.label
       tab.append(current)
     }
     const chevron = this.options.document.createElement('span')
@@ -475,6 +476,15 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const label = document.createElement('strong')
     label.textContent = option.label
     copy.append(label)
+    // Image-capable models carry a badge so users can tell before attaching a
+    // picture whether the model will accept it.
+    if ('imageInput' in option && option.imageInput === true) {
+      const badge = document.createElement('span')
+      badge.className = 'configuration-option-badge'
+      badge.textContent = '🖼'
+      badge.title = this.options.translate('modelImageInput')
+      copy.append(badge)
+    }
     if (providerName !== undefined && providerName !== '') {
       const provider = document.createElement('small')
       provider.className = 'configuration-option-provider'
@@ -514,6 +524,15 @@ function presetIcon(id: string): string {
   if (id === 'minimal') return '—'
   if (id === 'cordis') return '✦'
   return '◎'
+}
+
+/**
+ * Strips redundant provider/org prefixes (e.g. `deepseek/deepseek-v4-pro` -> `deepseek-v4-pro`)
+ * so the pill button remains clean and does not crowd out adjacent toolbar controls.
+ */
+function shortModelLabel(label: string): string {
+  const parts = label.split('/')
+  return parts.length > 1 ? parts[parts.length - 1]! : label
 }
 
 export type { ComposerConfigurationInput, ModelConfigurationOption }

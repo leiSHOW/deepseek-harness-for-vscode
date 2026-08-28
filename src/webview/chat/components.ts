@@ -39,7 +39,11 @@ components.connectionSettings = createConnectionSettingsComponent({
   },
 })
 
-components.contextMeter = createContextMeterComponent({ document, translate: t })
+components.contextMeter = createContextMeterComponent({
+  document,
+  translate: t,
+  onCompact: () => post('compact'),
+})
 
 components.editorContext = createEditorContextComponent({
   document,

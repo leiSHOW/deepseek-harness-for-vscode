@@ -1,4 +1,5 @@
-import type { ChatBlock, HarnessWorkbenchState } from '../../domain/workbench-state.js'
+import type { ChatBlock, HarnessWorkbenchState, TokenUsageView } from '../../domain/workbench-state.js'
+import { formatTokenCount } from '../token-format.js'
 import { closeCommandMenu, updateCommandMenu } from './command-menu.js'
 import { renderComposer, renderActivityStatus, renderQueued, resizePrompt } from './composer-core.js'
 import {
@@ -123,29 +124,48 @@ export function sendPrompt(): void {
 }
 
 /**
- * Renders a compact per-session activity line in the header: turn count,
- * cumulative duration, and (when the harness reports it) a token total. No
- * pricing is ever shown here — only raw counts and elapsed time.
+ * Renders a compact per-session activity line in the header: turn count and
+ * cumulative duration. The token flow (↑ in / ↓ out) moved to the session
+ * heading's right edge as its own pill (`#session-usage`).
  */
 function renderSessionStats(active: HarnessWorkbenchState['active']): void {
   const stats = active?.stats
   if (stats === undefined) {
     elements.sessionStats.textContent = ''
     elements.sessionStats.classList.add('hidden')
+  } else {
+    const tokenUsage = active?.tokenUsage
+    const totalTokens = tokenUsage === undefined ? 0
+      : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
+        + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
+    const parts = [
+      `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
+      `⏱ ${formatDuration(stats.durationMs)}`,
+      ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
+      ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
+    ]
+    elements.sessionStats.textContent = parts.join(' · ')
+    elements.sessionStats.classList.remove('hidden')
+  }
+  renderSessionUsage(active?.tokenUsage)
+}
+
+/** Cumulative token flow in the session heading's top-right corner. */
+function renderSessionUsage(tokenUsage: TokenUsageView | undefined): void {
+  if (tokenUsage === undefined) {
+    elements.sessionUsage.textContent = ''
+    elements.sessionUsage.classList.add('hidden')
     return
   }
-  const tokenUsage = active?.tokenUsage
-  const totalTokens = tokenUsage === undefined ? 0
-    : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
-      + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
-  const parts = [
-    `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
-    `⏱ ${formatDuration(stats.durationMs)}`,
-    ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
-    ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
-  ]
-  elements.sessionStats.textContent = parts.join(' · ')
-  elements.sessionStats.classList.remove('hidden')
+  const input = tokenUsage.uncachedInputTokens + tokenUsage.cacheReadTokens
+  const output = tokenUsage.outputTokens
+  if (input === 0 && output === 0) {
+    elements.sessionUsage.textContent = ''
+    elements.sessionUsage.classList.add('hidden')
+    return
+  }
+  elements.sessionUsage.textContent = `↑${formatTokenCount(input)} / ↓${formatTokenCount(output)}`
+  elements.sessionUsage.classList.remove('hidden')
 }
 
 function formatDuration(durationMs: number): string {
