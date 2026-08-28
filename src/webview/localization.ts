@@ -72,6 +72,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   configurationAppliesNextMessage: 'Changes apply when you send the next message.',
   modeStartsNewConversation: 'Changing DSH mode starts a new conversation when you send.',
   configurationSummary: '{model} · {mode} · Effort {effort}',
+  configurationSummaryAuto: 'Auto mode — model {model} chosen per task',
   contextUsageSummary: 'Context {used} / {limit} · {percent}% used',
   model: 'Model',
   reasoning: 'Reasoning',
