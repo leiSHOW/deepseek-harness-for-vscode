@@ -57,7 +57,8 @@ export class ComposerConfigurationStore {
       reasoning,
       effort,
       effortIndex,
-      effortTone: effortTone(effort.id, effortIndex, reasoning.length),
+      autoActive: selection.reasoningIntent === 'auto',
+      effortTone: selection.reasoningIntent === 'auto' ? 'auto' : effortTone(effort.id, effortIndex, reasoning.length),
       dirty: !configurationEquals(selection, current),
       modeStartsNewConversation: !input.blank && selection.agentPreset !== current.agentPreset,
     }
@@ -101,7 +102,21 @@ export class ComposerConfigurationStore {
     if (snapshot === undefined) return undefined
     const bounded = Math.max(0, Math.min(snapshot.reasoning.length - 1, Math.round(index)))
     const effort = snapshot.reasoning[bounded]
-    return effort === undefined ? snapshot : this.stage({ ...snapshot.selection, reasoningEffort: effort.id })
+    if (effort === undefined) return snapshot
+    // Picking a concrete tier on the slider explicitly leaves the auto layer.
+    return this.stage({
+      provider: snapshot.selection.provider,
+      model: snapshot.selection.model,
+      reasoningEffort: effort.id,
+      agentPreset: snapshot.selection.agentPreset,
+    })
+  }
+
+  /** Switches the session's reasoning to the extension-side auto layer. */
+  selectAuto(): ComposerConfigurationSnapshot | undefined {
+    const snapshot = this.snapshot()
+    if (snapshot === undefined) return undefined
+    return this.stage({ ...snapshot.selection, reasoningIntent: 'auto' })
   }
 
   markSubmitted(): void {
@@ -125,9 +140,13 @@ export function configurationEquals(left: PromptConfiguration, right: PromptConf
     && left.model === right.model
     && left.reasoningEffort === right.reasoningEffort
     && left.agentPreset === right.agentPreset
+    && (left.reasoningIntent === 'auto') === (right.reasoningIntent === 'auto')
 }
 
 export function effortTone(id: string, index: number, count: number): EffortTone {
+  // 'auto' sits after the maximum tick and resolves to a real tier only at
+  // send time; give it its own tone so it never shares a colour with a tier.
+  if (id.toLowerCase() === 'auto') return 'auto'
   if (id.toLowerCase() === 'off' || index === 0) return 'off'
   if (id.toLowerCase() === 'max' || id.toLowerCase() === 'maximum' || index === count - 1) return 'max'
   if (id.toLowerCase() === 'low') return 'low'
@@ -155,6 +174,7 @@ function normalizeSelection(
     model: model.id,
     reasoningEffort: effort.id,
     agentPreset: preset.id,
+    ...(requested.reasoningIntent === 'auto' ? { reasoningIntent: 'auto' as const } : {}),
   }
 }
 

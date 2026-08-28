@@ -29,16 +29,24 @@ export function renderSessions(): void {
   const sessions = query === '' ? pool : pool.filter((session) => resultIds.has(session.id))
   const fragment = document.createDocumentFragment()
   for (const session of sessions) {
-    // A blank draft has nothing worth hiding, but an archived one still needs restore.
-    const canArchive = showingArchived || !session.blank
+    // Every row can be archived, including blank drafts: an unwanted
+    // new-conversation stub is hidden exactly like any other conversation.
+    const canArchive = true
     const wrap = node('div', 'session-row-wrap')
     const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}${session.isolated === true ? ' has-worktree-action' : ''}`) as HTMLButtonElement
     if (session.id === payload.state.active?.id) button.classList.add('active')
     const top = node('span', 'session-row-top')
     top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
+    if (session.meta?.pinned === true) top.append(node('span', 'session-mark', '⚑'))
     const meta = node('span', 'session-meta', formatRelativeTime(session.updatedAt))
     if (session.agentPreset) meta.append(` · ${session.agentPreset}`)
     button.append(top, meta)
+    const tags = session.meta?.tags ?? []
+    if (tags.length > 0) {
+      const tagRow = node('span', 'session-tags')
+      for (const tag of tags) tagRow.append(node('span', 'session-tag', tag))
+      button.append(tagRow)
+    }
     const snippet = snippets.get(session.id)
     if (snippet) button.append(node('span', 'session-snippet', snippet))
     button.addEventListener('click', () => {
@@ -49,6 +57,12 @@ export function renderSessions(): void {
       toggleHistory(false)
     })
     wrap.append(button)
+    const actions = node('div', 'session-row-actions')
+    const pinned = session.meta?.pinned === true
+    const pin = metaAction(pinned ? t('unpinSession') : t('pinSession'), pinned ? '⚑' : '⚐', () => post('toggleSessionPin', { sessionId: session.id }))
+    if (pinned) pin.classList.add('active')
+    actions.append(pin)
+    actions.append(metaAction(t('editSessionTags'), '#', () => post('editSessionTags', { sessionId: session.id })))
     if (canArchive) {
       const action = node('button', 'icon-button compact session-archive-action') as HTMLButtonElement
       action.type = 'button'
@@ -67,8 +81,9 @@ export function renderSessions(): void {
         }
         post('archiveSession', { sessionId: session.id })
       })
-      wrap.append(action)
+      actions.append(action)
     }
+    wrap.append(actions)
     if (session.isolated === true) {
       const action = node('button', 'icon-button compact session-worktree-action') as HTMLButtonElement
       action.type = 'button'
@@ -135,6 +150,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
     parentSessionId: active?.parentSessionId,
     permissions: active?.permissions,
     running: active?.running,
+    effortIntent: active?.effortIntent,
   })
   if (nextSignature === selectorSignature) return
   setSelectorSignature(nextSignature)
@@ -226,4 +242,17 @@ export function toggleHistory(open: boolean): void {
     renderSessions()
     elements.historySearch.focus()
   }
+}
+
+function metaAction(label: string, glyph: string, onClick: () => void): HTMLButtonElement {
+  const action = node('button', 'icon-button compact session-archive-action') as HTMLButtonElement
+  action.type = 'button'
+  action.title = label
+  action.setAttribute('aria-label', label)
+  action.textContent = glyph
+  action.addEventListener('click', (event) => {
+    event.stopPropagation()
+    onClick()
+  })
+  return action
 }

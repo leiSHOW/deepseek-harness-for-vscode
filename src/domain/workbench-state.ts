@@ -8,7 +8,10 @@ import type {
 import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type { ContextPressureView } from './context-pressure.js'
+import type { EffortIntent } from './session-effort.js'
 import type { SessionChangesView } from './session-changes.js'
+import type { SessionMeta } from './session-meta.js'
+import type { SessionStatsView } from './session-stats.js'
 import { projectTurnDurations, type TurnDurationView } from './turn-duration.js'
 
 export type ConnectionPhase = 'idle' | 'starting' | 'connected' | 'reconnecting' | 'error'
@@ -21,6 +24,7 @@ export interface SessionListItem {
   readonly running: boolean
   readonly blank: boolean
   readonly agentPreset?: string
+  readonly meta?: SessionMeta
   /** Whether this session runs in its own git worktree (plan A2 isolation). */
   readonly isolated?: boolean
 }
@@ -116,6 +120,8 @@ export interface ActiveSessionView {
   readonly tokenUsage?: TokenUsageView
   readonly contextPressure?: ContextPressureView
   readonly changes?: SessionChangesView
+  readonly stats?: SessionStatsView
+  readonly effortIntent?: EffortIntent
 }
 
 /**

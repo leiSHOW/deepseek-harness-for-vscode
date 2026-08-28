@@ -95,7 +95,7 @@ export class WorktreeService implements vscode.Disposable {
     const baseBranch = await currentBranch(this.run, repoRoot)
     if (baseBranch === undefined) return { cwd: baseCwd, isolated: false, reason: 'detached-head' }
     const branch = `dsh/${sessionId}`
-    const worktreePath = path.join(repoRoot, '.dsh-worktrees', sessionId)
+    const worktreePath = joinPathLike(repoRoot, '.dsh-worktrees', sessionId)
     try {
       await this.run(repoRoot, ['worktree', 'add', worktreePath, '-b', branch])
       await ignoreDshWorktrees(repoRoot)
@@ -157,7 +157,7 @@ export class WorktreeService implements vscode.Disposable {
   async mergeBack(sessionId: string): Promise<MergeOutcome> {
     const record = this.records.get(sessionId)
     if (record === undefined) return { ok: false, message: 'no-worktree' }
-    const tmp = path.join(record.repoRoot, '.dsh-worktrees', `.merge-${sessionId}`)
+    const tmp = joinPathLike(record.repoRoot, '.dsh-worktrees', `.merge-${sessionId}`)
     // Captured before the ref moves: after `update-ref` the main worktree is
     // necessarily "dirty" relative to the new HEAD, so post-merge checks are
     // meaningless. A clean start means we can safely sync the working tree.
@@ -348,16 +348,30 @@ const EXCLUDE_ENTRY = '.dsh-worktrees/\n'
  */
 async function ignoreDshWorktrees(repoRoot: string): Promise<void> {
   try {
-    const gitDir = path.join(repoRoot, '.git', 'info', 'exclude')
+    const gitDir = joinPathLike(repoRoot, '.git', 'info', 'exclude')
     let content = ''
     try {
       content = await readFile(gitDir, 'utf8')
     } catch {
-      await mkdir(path.dirname(gitDir), { recursive: true })
+      await mkdir(dirnameLike(repoRoot, gitDir), { recursive: true })
     }
     if (content.split('\n').includes('.dsh-worktrees/')) return
     await appendFile(gitDir, content.endsWith('\n') ? EXCLUDE_ENTRY : `\n${EXCLUDE_ENTRY}`)
   } catch {
     // Never fail session creation over an exclude-entry nicety.
   }
+}
+
+/** Preserve the separator style returned by the injected/real git root. */
+function joinPathLike(root: string, ...parts: string[]): string {
+  const join = isWindowsPath(root) ? path.win32.join : path.posix.join
+  return join(root, ...parts).replaceAll('\\', '/')
+}
+
+function dirnameLike(root: string, value: string): string {
+  return isWindowsPath(root) ? path.win32.dirname(value) : path.posix.dirname(value)
+}
+
+function isWindowsPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(value) || value.includes('\\')
 }

@@ -1,9 +1,16 @@
-/** Configuration staged in the composer and committed immediately before a prompt. */
+/**
+ * Configuration staged in the composer and committed immediately before a
+ * prompt. `reasoningEffort` is always a concrete provider tier id; when the
+ * user chose the extension-side auto layer, `reasoningIntent` is
+ * `'auto'` and the effort is resolved to a concrete tier at send time. This
+ * keeps the extension's own "auto" out of the provider effort-id namespace.
+ */
 export interface PromptConfiguration {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort: string
   readonly agentPreset: string
+  readonly reasoningIntent?: 'auto'
 }
 
 export type AgentPresetTransition = 'keep-session' | 'select-blank-session' | 'create-session'
@@ -28,7 +35,10 @@ export function promptConfiguration(value: unknown): PromptConfiguration | undef
   if (provider === undefined || model === undefined || reasoningEffort === undefined || agentPreset === undefined) {
     return undefined
   }
-  return { provider, model, reasoningEffort, agentPreset }
+  const reasoningIntent = value.reasoningIntent === 'auto' ? 'auto' : undefined
+  return reasoningIntent === undefined
+    ? { provider, model, reasoningEffort, agentPreset }
+    : { provider, model, reasoningEffort, agentPreset, reasoningIntent }
 }
 
 function nonEmptyString(value: unknown): string | undefined {

@@ -7,10 +7,10 @@
  * view, and switching back restores the other project's sessions.
  */
 
-/** Strips trailing separators; Windows paths compare case-insensitively. */
+/** Strips trailing separators without changing the path's spelling. */
 export function normalizeWorkspacePath(value: string): string {
   const trimmed = value.replace(/[\\/]+$/u, '')
-  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
+  return trimmed
 }
 
 /**
@@ -21,6 +21,14 @@ export function normalizeWorkspacePath(value: string): string {
  * equal a real project folder and stay hidden everywhere.
  */
 export function sameWorkspacePath(sessionCwd: string | undefined, workspaceCwd: string | undefined): boolean {
-  return sessionCwd !== undefined && workspaceCwd !== undefined
-    && normalizeWorkspacePath(sessionCwd) === normalizeWorkspacePath(workspaceCwd)
+  if (sessionCwd === undefined || workspaceCwd === undefined) return false
+  const left = normalizeWorkspacePath(sessionCwd)
+  const right = normalizeWorkspacePath(workspaceCwd)
+  const windowsPath = /^[A-Za-z]:[\\/]/u.test(left)
+    || /^[A-Za-z]:[\\/]/u.test(right)
+    || left.includes('\\')
+    || right.includes('\\')
+  return process.platform === 'win32' && windowsPath
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right
 }

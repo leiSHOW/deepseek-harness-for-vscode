@@ -237,7 +237,6 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         if (value.configuration !== undefined && staged === undefined) {
           throw new Error(vscode.l10n.t('Invalid model or mode configuration.'))
         }
-        if (staged !== undefined) await this.gateway.applyPromptConfiguration(staged)
         const context = promptContextInput(value.context)
         const selectionId = context === undefined && this.configuration.get().autoAttachSelection
           ? this.editorSelection.current()?.id
@@ -245,10 +244,27 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         const selection = this.editorSelection.attachment(selectionId)
         const files = await this.workspaceFiles.attachments(context?.fileIds ?? [])
         const images = promptImageAttachments(value.images)
-        await this.gateway.prompt(
+        const attachments = [...(selection === undefined ? [] : [selection]), ...files, ...images]
+        // Host-computed task signals for the 'auto' reasoning layer, measured
+        // after the final attachment set is known: a short question carrying a
+        // large @-file or editor selection must never be judged trivial.
+        const textChars = attachments.reduce(
+          (sum, attachment) => sum + ('text' in attachment ? attachment.text.length : 0),
+          text.length,
+        )
+        const signals = {
+          promptTokens: Math.ceil(textChars / 4),
+          attachmentCount: attachments.length,
+        }
+        // The gateway owns configuration staging: idle prompts apply it ahead
+        // of admission; queued prompts keep it in a FIFO pending queue applied
+        // at the next turn boundary. No snapshot check races here.
+        await this.gateway.sendPrompt(
           text,
           value.mode === 'steer' ? 'steer' : 'queue',
-          [...(selection === undefined ? [] : [selection]), ...files, ...images],
+          attachments,
+          staged,
+          signals,
         )
         break
       }
@@ -370,6 +386,22 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       case 'restoreSession':
         await this.gateway.restoreSession(requiredString(value, 'sessionId'))
         break
+      case 'toggleSessionPin':
+        await this.gateway.toggleSessionPin(requiredString(value, 'sessionId'))
+        break
+      case 'editSessionTags': {
+        const sessionId = requiredString(value, 'sessionId')
+        const state = await this.gateway.snapshot()
+        const session = [...state.sessions, ...state.archivedSessions].find((item) => item.id === sessionId)
+        const input = await vscode.window.showInputBox({
+          prompt: vscode.l10n.t('Tags for this conversation (comma-separated)'),
+          value: (session?.meta?.tags ?? []).join(', '),
+        })
+        if (input === undefined) break
+        const tags = input.split(',').map((tag) => tag.trim()).filter((tag) => tag !== '')
+        await this.gateway.setSessionTags(sessionId, tags)
+        break
+      }
       case 'worktreeAction':
         await this.handleWorktreeAction(requiredString(value, 'sessionId'))
         break
@@ -543,6 +575,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       <button id="fork" class="icon-button compact" title="${text('forkConversation')}" aria-label="${text('forkConversation')}">⑂</button>
       <button id="import-session" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">⤓</button>
       <button id="export-session" class="icon-button compact" title="${text('exportSession')}" aria-label="${text('exportSession')}">↥</button>
+      <span id="session-stats" class="session-stats" title="${text('sessionStats')}"></span>
     </div>
   </header>
 
@@ -678,6 +711,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
                 <div id="effort-ticks" class="effort-ticks"></div>
                 <span class="effort-thumb" aria-hidden="true"></span>
               </div>
+              <button id="effort-auto" class="effort-auto" type="button" aria-pressed="false" title="${text('effortAutoDescription')}">${text('effortAuto')}</button>
             </div>
             <p id="configuration-hint">${text('configurationAppliesNextMessage')}</p>
           </footer>
