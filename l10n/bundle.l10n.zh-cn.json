@@ -335,6 +335,7 @@
   "Status": "状态",
   "You": "你",
   "Tool": "工具",
+  "Task list": "任务清单",
   "Approval required: {tool}": "需要批准：{tool}",
   "Reject": "拒绝",
   "Allow once": "允许一次",

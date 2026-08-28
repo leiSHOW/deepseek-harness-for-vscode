@@ -14,6 +14,7 @@ import {
 } from './context.js'
 import { clearPastedImages } from './images.js'
 import { closeTimeline } from './timeline.js'
+import { appendTodoRows } from './todo-list.js'
 import { cssEscape, formatRelativeTime } from './utils.js'
 
 export function renderDetails(): void {
@@ -51,11 +52,9 @@ export function renderDetails(): void {
       mode.append(toggle)
       fragment.append(mode)
     }
-    for (const todo of active?.todos || []) {
-      const row = node('div', `todo-row ${todo.status}`)
-      row.append(node('span', 'todo-check', todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '●' : '○'), node('span', '', todo.content))
-      fragment.append(row)
-    }
+    // Rendered through the shared helper so the Plan tab and the stream's
+    // live todo cards stay visually identical.
+    appendTodoRows(fragment, active?.todos || [])
   } else if (currentDetail === 'goal') {
     const goal = active?.goal
     if (!goal) {

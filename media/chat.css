@@ -596,6 +596,36 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .todo-row.completed { color: var(--vscode-descriptionForeground); text-decoration: line-through; }
 .todo-row.in_progress .todo-check { color: var(--vscode-progressBar-background); }
 .todo-check { width: 12px; flex: none; }
+/* Live task-list card in the message stream (todo_write tool). */
+.todo-card summary .todo-progress {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-descriptionForeground) 14%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+.todo-card summary .todo-progress.complete { color: var(--vscode-testing-iconPassed); }
+.todo-card .todo-list {
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px 6px;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-widget-border);
+}
+.todo-card .todo-list .todo-row { padding: 2px 3px; font-size: 11px; }
+.todo-card .todo-list .todo-row.in_progress .todo-text { color: var(--vscode-foreground); }
+.todo-card .todo-list .todo-row.completed .todo-text { opacity: .7; }
+.todo-card .todo-error {
+  margin: 0;
+  border-top: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-errorForeground);
+  white-space: pre-wrap;
+}
+.todo-text { min-width: 0; overflow-wrap: anywhere; }
 .timeline-row {
   width: 100%;
   padding: 7px 8px;

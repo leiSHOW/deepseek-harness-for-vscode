@@ -9,6 +9,7 @@ import {
   messageSignatures,
   node,
   optimisticBubbles,
+  payload,
   renderedSessionId,
   setOptimisticBubbles,
   setRenderedSessionId,
@@ -17,6 +18,7 @@ import {
   t,
 } from './context.js'
 import { markdownActions } from './markdown-actions.js'
+import { appendTodoRows, todoListSignature, todoProgress, type TodoEntry } from './todo-list.js'
 import type { OptimisticBubble } from './types.js'
 import {
   captureDisclosures,
@@ -124,6 +126,11 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   for (const footer of Array.from(elements.messages.querySelectorAll<HTMLElement>('article.message:not(.assistant) .work-duration'))) {
     footer.remove()
   }
+  // Live todo cards: `todo/write` events change only the session's projected
+  // todos, never the tool item's own signature, so the reconciliation loop
+  // above would otherwise leave them stale. Refresh every card whose bound
+  // checklist diverged from the current session state.
+  refreshTodoCards(active?.todos ?? [])
   elements.empty.classList.toggle('hidden', messages.length > 0)
   const prepended = !sessionChanged && previousFirstId !== undefined
     && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
@@ -264,6 +271,7 @@ function renderMessage(item: ChatItem, conclusionId: string | undefined, running
 }
 
 function renderTool(item: ChatItem): HTMLElement {
+  if (isTodoTool(item.title)) return renderTodoCard(item)
   const container = node('div', 'tool-item')
   const details = node('details', `tool-card ${item.status || ''}`) as HTMLDetailsElement
   details.dataset.disclosureKey = 'tool'
@@ -307,6 +315,91 @@ function toolSectionLabel(label: string, tokens: number | undefined): HTMLElemen
     el.append(node('span', 'tool-tokens', t('toolTokens', { tokens: formatTokenCount(tokens) })))
   }
   return el
+}
+
+const TODO_TOOL_NAMES = new Set(['todo_write', 'todo', 'task'])
+
+function isTodoTool(name: string | undefined): boolean {
+  return TODO_TOOL_NAMES.has(String(name || '').trim().toLowerCase())
+}
+
+/**
+ * Renders a `todo_write` call as a live checklist card instead of a generic
+ * tool card: an expanded ○/●/☑ list with a `x/y` progress readout. The card is
+ * bound to the session's projected todos, so every later `todo/write` event
+ * refreshes it in place (see {@link refreshTodoCards}).
+ */
+function renderTodoCard(item: ChatItem): HTMLElement {
+  const container = node('div', 'tool-item')
+  const details = node('details', 'tool-card todo-card') as HTMLDetailsElement
+  details.dataset.disclosureKey = `todo-${String(item.id)}`
+  details.dataset.autoOpen = 'true'
+  const summary = node('summary')
+  summary.append(node('span', 'tool-status', '☑'), node('span', 'tool-title', t('taskList')))
+  const progress = node('span', 'todo-progress')
+  summary.append(progress)
+  details.append(summary)
+  const body = node('div', 'todo-list')
+  const todos = liveTodos(item)
+  body.dataset.todoSignature = todoListSignature(todos)
+  appendTodoRows(body, todos)
+  details.append(body)
+  // A failed write still surfaces its error under the checklist.
+  if (item.status === 'error' && item.result && item.result.trim() !== '') {
+    details.append(node('div', 'tool-detail todo-error', item.result))
+  }
+  container.append(details)
+  updateTodoProgress(details, todos)
+  if (item.workDuration !== undefined) components.workDuration.update(container, item.workDuration)
+  return container
+}
+
+/** The session's current todos, falling back to the card's own call payload. */
+function liveTodos(item: ChatItem): readonly TodoEntry[] {
+  const current = payload?.state.active?.todos
+  if (current !== undefined && current.length > 0) return current
+  return todosFromDetail(item.detail)
+}
+
+function todosFromDetail(detail: string | undefined): TodoEntry[] {
+  const trimmed = String(detail || '').trim()
+  if (!isJsonText(trimmed)) return []
+  try {
+    const parsed = JSON.parse(trimmed) as { todos?: unknown }
+    if (!Array.isArray(parsed.todos)) return []
+    return parsed.todos
+      .filter((entry): entry is TodoEntry => typeof entry === 'object' && entry !== null
+        && typeof (entry as TodoEntry).content === 'string'
+        && typeof (entry as TodoEntry).status === 'string')
+  } catch {
+    return []
+  }
+}
+
+function updateTodoProgress(details: HTMLDetailsElement, todos: readonly TodoEntry[]): void {
+  const progress = details.querySelector<HTMLElement>('.todo-progress')
+  if (progress === null) return
+  const { done, total } = todoProgress(todos)
+  progress.textContent = `${done}/${total}`
+  progress.classList.toggle('complete', total > 0 && done === total)
+}
+
+/**
+ * Refreshes every live todo card in the stream whose bound checklist diverged
+ * from the session's projected todos (a `todo/write` event landed). Called on
+ * every state render so progress and rows track the agent's plan in real time.
+ */
+function refreshTodoCards(todos: readonly TodoEntry[]): void {
+  const signature = todoListSignature(todos)
+  for (const details of Array.from(elements.messages.querySelectorAll<HTMLDetailsElement>('.todo-card'))) {
+    const body = details.querySelector<HTMLElement>('.todo-list')
+    if (body === null) continue
+    if (body.dataset.todoSignature === signature) continue
+    body.dataset.todoSignature = signature
+    body.replaceChildren()
+    appendTodoRows(body, todos)
+    updateTodoProgress(details, todos)
+  }
 }
 
 function toolDisplayName(name: string | undefined): string {
