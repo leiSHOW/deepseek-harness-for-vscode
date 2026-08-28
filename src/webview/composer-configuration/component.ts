@@ -268,16 +268,22 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const { translate: t } = this.options
     this.toggle.disabled = !snapshot.input.connected || !snapshot.input.editable
     if (this.toggle.disabled) this.close()
-    this.toggleModel.textContent = snapshot.model.label
-    const effortLabel = snapshot.autoActive
-      ? (snapshot.experimentalAutoEffort ? t('autoMode') : t('effortAuto'))
-      : snapshot.effort.label
-    this.toggleMode.textContent = effortLabel
-    this.toggle.title = t('configurationSummary', {
-      model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
-      mode: snapshot.preset.label,
-      effort: snapshot.effort.label,
-    })
+    // Auto mode: the toggle leads with the mode and shows the model the last
+    // Auto send actually landed on (it follows model switches in real time).
+    if (snapshot.autoActive) {
+      this.toggleModel.textContent = t('autoMode')
+      this.toggleMode.textContent = snapshot.model.label
+    } else {
+      this.toggleModel.textContent = snapshot.model.label
+      this.toggleMode.textContent = snapshot.effort.label
+    }
+    this.toggle.title = snapshot.autoActive
+      ? t('configurationSummaryAuto', { model: snapshot.model.label })
+      : t('configurationSummary', {
+        model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
+        mode: snapshot.preset.label,
+        effort: snapshot.effort.label,
+      })
     this.toggle.classList.toggle('pending', snapshot.dirty)
     // Tints the toggle icon (and pending ring) with the active effort tone.
     this.toggle.dataset.effort = snapshot.effortTone
