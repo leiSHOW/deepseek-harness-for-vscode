@@ -51,6 +51,9 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private readonly modelsCurrent: HTMLElement
   private readonly presetsCurrent: HTMLElement
   private readonly effortControl: HTMLElement
+  private readonly effortStandardRow: HTMLElement
+  private readonly effortAutoModeRow: HTMLElement
+  private readonly autoModeToggle: HTMLButtonElement
   private readonly effortValue: HTMLElement
   private readonly effortSlider: HTMLInputElement
   private readonly effortTicks: HTMLElement
@@ -72,6 +75,9 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.modelsCurrent = requiredElement(document, 'configuration-models-current')
     this.presetsCurrent = requiredElement(document, 'configuration-presets-current')
     this.effortControl = requiredElement(document, 'effort-control')
+    this.effortStandardRow = requiredElement(document, 'effort-standard-row')
+    this.effortAutoModeRow = requiredElement(document, 'effort-auto-mode-row')
+    this.autoModeToggle = requiredElement(document, 'auto-mode-toggle')
     this.effortValue = requiredElement(document, 'effort-value')
     this.effortSlider = requiredElement(document, 'effort-slider')
     this.effortTicks = requiredElement(document, 'effort-ticks')
@@ -167,6 +173,17 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       this.render(snapshot)
       this.options.onChange()
     })
+    this.autoModeToggle.addEventListener('click', () => {
+      const snapshot = this.store.toggleAuto()
+      this.render(snapshot)
+      if (snapshot !== undefined) {
+        this.flourish(
+          snapshot.effortTone,
+          snapshot.autoActive ? this.options.translate('autoMode') : snapshot.effort.label,
+        )
+      }
+      this.options.onChange()
+    })
     this.options.document.addEventListener('pointerdown', (event) => {
       const target = event.target
       if (!(target instanceof Node) || this.panel.classList.contains('hidden')) return
@@ -252,7 +269,10 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.toggle.disabled = !snapshot.input.connected || !snapshot.input.editable
     if (this.toggle.disabled) this.close()
     this.toggleModel.textContent = snapshot.model.label
-    this.toggleMode.textContent = snapshot.preset.label
+    const effortLabel = snapshot.autoActive
+      ? (snapshot.experimentalAutoEffort ? t('autoMode') : t('effortAuto'))
+      : snapshot.effort.label
+    this.toggleMode.textContent = effortLabel
     this.toggle.title = t('configurationSummary', {
       model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
       mode: snapshot.preset.label,
@@ -382,8 +402,23 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private renderEffort(snapshot: ComposerConfigurationSnapshot): void {
     const { translate: t } = this.options
     this.effortControl.dataset.effort = snapshot.effortTone
-    const effortLabel = snapshot.autoActive ? t('effortAuto') : snapshot.effort.label
+    const effortLabel = snapshot.autoActive ? (snapshot.experimentalAutoEffort ? t('autoMode') : t('effortAuto')) : snapshot.effort.label
     this.effortValue.textContent = effortLabel
+
+    if (snapshot.experimentalAutoEffort) {
+      this.effortStandardRow.classList.add('hidden')
+      this.effortAutoModeRow.classList.remove('hidden')
+      this.autoModeToggle.classList.toggle('active', snapshot.autoActive)
+      this.autoModeToggle.setAttribute('aria-checked', String(snapshot.autoActive))
+      this.autoModeToggle.disabled = !snapshot.input.editable
+      return
+    }
+
+    this.effortStandardRow.classList.remove('hidden')
+    this.effortAutoModeRow.classList.add('hidden')
+    // The Auto choice belongs to the experimental mode only: without the flag
+    // the slider offers concrete tiers, so the Auto pill stays hidden.
+    this.effortAuto.classList.toggle('hidden', !snapshot.experimentalAutoEffort)
     this.effortAuto.classList.toggle('active', snapshot.autoActive)
     this.effortAuto.setAttribute('aria-pressed', String(snapshot.autoActive))
     this.effortAuto.disabled = !snapshot.input.editable
