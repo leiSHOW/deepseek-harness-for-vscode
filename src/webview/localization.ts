@@ -75,6 +75,8 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   configurationSummary: '{model} · {mode} · Effort {effort}',
   configurationSummaryAuto: 'Auto mode — model and effort chosen per task',
   modelImageInput: 'Supports image input',
+  modelListShowMore: '+{count} more',
+  modelListShowLess: 'Show less',
   contextUsageSummary: 'Context {used} / {limit} · {percent}% used',
   model: 'Model',
   reasoning: 'Reasoning',

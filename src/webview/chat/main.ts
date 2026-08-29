@@ -14,6 +14,7 @@ import {
   followStream,
   interactionArmed,
   menuState,
+  optimisticBubbles,
   payload,
   post,
   searchTimer,
@@ -21,6 +22,7 @@ import {
   setFollowStream,
   setInteractionArmed,
   setMenuState,
+  setOptimisticBubbles,
   setPayload,
   setSearchResults,
   setSearchTimer,
@@ -101,6 +103,16 @@ window.addEventListener('message', (event) => {
   }
   if (event.data?.type === 'connectionTestResult') {
     components.connectionSettings.renderTestResult(event.data)
+    return
+  }
+  if (event.data?.type === 'sendPromptFailed') {
+    // The host rejected the prompt before it entered the queue (e.g. the model
+    // does not support image input). Roll back the optimistic echo so the
+    // failed message does not linger as if it had been sent.
+    if (optimisticBubbles.length > 0) {
+      setOptimisticBubbles([])
+      render()
+    }
     return
   }
   if (event.data?.type !== 'state') return

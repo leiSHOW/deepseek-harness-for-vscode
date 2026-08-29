@@ -266,13 +266,21 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         // The gateway owns configuration staging: idle prompts apply it ahead
         // of admission; queued prompts keep it in a FIFO pending queue applied
         // at the next turn boundary. No snapshot check races here.
-        await this.gateway.sendPrompt(
-          text,
-          value.mode === 'steer' ? 'steer' : 'queue',
-          attachments,
-          staged,
-          signals,
-        )
+        try {
+          await this.gateway.sendPrompt(
+            text,
+            value.mode === 'steer' ? 'steer' : 'queue',
+            attachments,
+            staged,
+            signals,
+          )
+        } catch (cause) {
+          // The prompt never entered the queue: tell the webview to roll back
+          // its optimistic echo so the failed message does not linger as if it
+          // had been sent (and later real messages do not stack behind it).
+          await this.postToHosts({ type: 'sendPromptFailed' })
+          throw cause
+        }
         break
       }
       case 'cancel':

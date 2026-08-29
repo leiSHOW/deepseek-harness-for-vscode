@@ -38,6 +38,8 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private effortDragging = false
   /** Provider tab shown in the model rail; defaults to the selection's. */
   private expandedProvider: string | undefined
+  /** Providers whose model list is expanded past the first few rows. */
+  private readonly expandedModelLists = new Set<string>()
   private readonly panel: HTMLElement
   private readonly toggle: HTMLButtonElement
   private readonly toggleModel: HTMLElement
@@ -323,7 +325,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     if (groups.size <= 1) {
       // A single provider needs no extra level: list its models directly.
       for (const models of groups.values()) {
-        for (const model of models) fragment.append(this.modelButton(snapshot, model))
+        fragment.append(this.modelList(snapshot, models))
       }
     } else {
       // Multiple providers get a master-detail layout: provider tabs on the
@@ -337,14 +339,60 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       detail.className = 'configuration-provider-models'
       for (const [provider, models] of groups) {
         rail.append(this.providerTab(snapshot, provider, models, provider === openProvider))
-        if (provider === openProvider) {
-          for (const model of models) detail.append(this.modelButton(snapshot, model))
-        }
+        if (provider === openProvider) detail.append(this.modelList(snapshot, models))
       }
       layout.append(rail, detail)
       fragment.append(layout)
     }
     this.models.replaceChildren(fragment)
+  }
+
+  /**
+   * Renders a provider's model column as a capped virtual list: only the
+   * first few rows are in the DOM until the user expands. The currently
+   * selected model is always visible, promoted ahead of the visible window
+   * when it falls outside it.
+   */
+  private modelList(snapshot: ComposerConfigurationSnapshot, models: readonly ModelConfigurationOption[]): HTMLElement {
+    const { document, translate: t } = this.options
+    const container = document.createElement('div')
+    container.className = 'configuration-model-list'
+    const windowSize = 4
+    const selected = models.find((model) => model.provider === snapshot.selection.provider && model.id === snapshot.selection.model)
+    const expanded = this.expandedModelLists.has(models[0]!.provider)
+    const collapsed = !expanded && models.length > windowSize
+    if (!collapsed) {
+      for (const model of models) container.append(this.modelButton(snapshot, model))
+      if (expanded && models.length > windowSize) {
+        const collapse = document.createElement('button')
+        collapse.type = 'button'
+        collapse.className = 'configuration-option configuration-model-reveal'
+        collapse.textContent = t('modelListShowLess')
+        collapse.addEventListener('click', () => {
+          this.expandedModelLists.delete(models[0]!.provider)
+          this.render(this.store.snapshot())
+        })
+        container.append(collapse)
+      }
+      return container
+    }
+    // Keep the selection visible even when it lands past the first window.
+    const ordered = [...models]
+    if (selected !== undefined && ordered.indexOf(selected) >= windowSize) {
+      ordered.splice(ordered.indexOf(selected), 1)
+      ordered.unshift(selected)
+    }
+    for (const model of ordered.slice(0, windowSize)) container.append(this.modelButton(snapshot, model))
+    const reveal = document.createElement('button')
+    reveal.type = 'button'
+    reveal.className = 'configuration-option configuration-model-reveal'
+    reveal.textContent = t('modelListShowMore', { count: String(ordered.length - windowSize) })
+    reveal.addEventListener('click', () => {
+      this.expandedModelLists.add(models[0]!.provider)
+      this.render(this.store.snapshot())
+    })
+    container.append(reveal)
+    return container
   }
 
   private providerTab(
