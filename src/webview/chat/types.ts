@@ -58,6 +58,7 @@ export interface ChatElements {
   readonly historyArchived: HTMLButtonElement
   readonly exportSession: HTMLElement
   readonly sessionStats: HTMLElement
+  readonly sessionUsage: HTMLElement
   readonly permission: HTMLElement
   readonly permissionToggle: HTMLButtonElement
   readonly permissionToggleLabel: HTMLElement
@@ -100,7 +101,7 @@ export interface ChatElements {
   readonly send: HTMLButtonElement
   readonly composerStatus: HTMLElement
   readonly activityStatus: HTMLElement
-  readonly compact: HTMLElement
+  readonly composerHint: HTMLElement
   readonly queuedPanel: HTMLElement
 }
 

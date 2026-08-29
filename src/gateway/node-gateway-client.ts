@@ -1,5 +1,6 @@
 import type { RawData } from 'ws'
 import WebSocket from 'ws'
+import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici'
 import type {
   ApiProxy,
   HostFrame,
@@ -164,7 +165,16 @@ export class NodeGatewayClient extends AbstractApiClient {
   }
 
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
-    return globalThis.fetch(input, init)
+    // The Gateway always listens on 127.0.0.1. undici's default global fetch
+    // honors HTTP(S)_PROXY env vars, so a system proxy (Clash/Surge/VPN) can
+    // route loopback requests through the proxy and fail with `fetch failed`,
+    // leaving the workbench stuck on "Starting Harness". A bare Agent bypasses
+    // the proxy entirely for every request this client makes — the extension
+    // only ever talks to the local Gateway over loopback.
+    const request = init === undefined
+      ? { dispatcher: LOOPBACK_DISPATCHER }
+      : { ...init, dispatcher: LOOPBACK_DISPATCHER }
+    return undiciFetch(input, request as Parameters<typeof undiciFetch>[1]) as Promise<Response>
   }
 
   protected override openMux(
@@ -247,6 +257,9 @@ function timedOutImport(path: string, timeoutMs: number, cause: unknown): Error 
   }
   return cause instanceof Error ? cause : new Error(String(cause))
 }
+
+/** Shared proxy-free dispatcher for every loopback Gateway request. */
+const LOOPBACK_DISPATCHER = new UndiciAgent({ connect: { timeout: 30_000 } })
 
 function rawDataText(data: RawData): string {
   if (typeof data === 'string') return data

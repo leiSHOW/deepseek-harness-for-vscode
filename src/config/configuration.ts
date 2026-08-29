@@ -73,6 +73,14 @@ export class ConfigurationService implements vscode.Disposable {
     return this.update('model', value)
   }
 
+  /**
+   * Persists any model id (including relay/pi-ai ids outside the bundled
+   * catalog) so the default model always matches the provider it belongs to.
+   */
+  setModelId(value: string): Thenable<void> {
+    return this.update('model', value)
+  }
+
   setReasoningEffort(value: ReasoningEffort): Thenable<void> {
     return this.update('reasoningEffort', value)
   }

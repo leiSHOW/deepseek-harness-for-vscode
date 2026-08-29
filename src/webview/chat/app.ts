@@ -1,4 +1,5 @@
-import type { ChatBlock, HarnessWorkbenchState } from '../../domain/workbench-state.js'
+import type { ChatBlock, HarnessWorkbenchState, TokenUsageView } from '../../domain/workbench-state.js'
+import { formatTokenCount } from '../token-format.js'
 import { closeCommandMenu, updateCommandMenu } from './command-menu.js'
 import { renderComposer, renderActivityStatus, renderQueued, resizePrompt } from './composer-core.js'
 import {
@@ -79,6 +80,13 @@ export function sendPrompt(): void {
   components.composerConfiguration.close()
   const text = elements.prompt.value.trim()
   if (!text && pastedImages.length === 0) return
+  // Backstop for image prompts: pasting is already refused when the model is
+  // known to reject images, but the selection can change (or resolve from
+  // Auto) after the paste, so a doomed send is still caught here.
+  if (pastedImages.length > 0 && components.composerConfiguration.supportsImageInput() === false) {
+    rejectImagePrompt()
+    return
+  }
   const configuration = components.composerConfiguration.selection()
   components.composerConfiguration.markSubmitted()
   // The configuration always travels with the prompt: the host stages it
@@ -122,30 +130,62 @@ export function sendPrompt(): void {
   if (optimisticBubbles.length > 0) renderMessages(payload?.state.active)
 }
 
+/** Backstop rejection when an image prompt cannot be served by the model. */
+function rejectImagePrompt(): void {
+  const hint = elements.composerHint
+  hint.textContent = t('modelRejectsImages')
+  hint.classList.remove('image-rejected')
+  void hint.offsetWidth
+  hint.classList.add('image-rejected')
+  window.setTimeout(() => {
+    hint.textContent = t('composerHint')
+    hint.classList.remove('image-rejected')
+  }, 2600)
+}
+
 /**
- * Renders a compact per-session activity line in the header: turn count,
- * cumulative duration, and (when the harness reports it) a token total. No
- * pricing is ever shown here — only raw counts and elapsed time.
+ * Renders a compact per-session activity line in the header: turn count and
+ * cumulative duration. The token flow (↑ in / ↓ out) moved to the session
+ * heading's right edge as its own pill (`#session-usage`).
  */
 function renderSessionStats(active: HarnessWorkbenchState['active']): void {
   const stats = active?.stats
   if (stats === undefined) {
     elements.sessionStats.textContent = ''
     elements.sessionStats.classList.add('hidden')
+  } else {
+    const tokenUsage = active?.tokenUsage
+    const totalTokens = tokenUsage === undefined ? 0
+      : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
+        + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
+    const parts = [
+      `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
+      `⏱ ${formatDuration(stats.durationMs)}`,
+      ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
+      ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
+    ]
+    elements.sessionStats.textContent = parts.join(' · ')
+    elements.sessionStats.classList.remove('hidden')
+  }
+  renderSessionUsage(active?.tokenUsage)
+}
+
+/** Cumulative token flow in the session heading's top-right corner. */
+function renderSessionUsage(tokenUsage: TokenUsageView | undefined): void {
+  if (tokenUsage === undefined) {
+    elements.sessionUsage.textContent = ''
+    elements.sessionUsage.classList.add('hidden')
     return
   }
-  const tokenUsage = active?.tokenUsage
-  const totalTokens = tokenUsage === undefined ? 0
-    : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
-      + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
-  const parts = [
-    `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
-    `⏱ ${formatDuration(stats.durationMs)}`,
-    ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
-    ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
-  ]
-  elements.sessionStats.textContent = parts.join(' · ')
-  elements.sessionStats.classList.remove('hidden')
+  const input = tokenUsage.uncachedInputTokens + tokenUsage.cacheReadTokens
+  const output = tokenUsage.outputTokens
+  if (input === 0 && output === 0) {
+    elements.sessionUsage.textContent = ''
+    elements.sessionUsage.classList.add('hidden')
+    return
+  }
+  elements.sessionUsage.textContent = `↑${formatTokenCount(input)} / ↓${formatTokenCount(output)}`
+  elements.sessionUsage.classList.remove('hidden')
 }
 
 function formatDuration(durationMs: number): string {

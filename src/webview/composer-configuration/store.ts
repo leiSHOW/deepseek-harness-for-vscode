@@ -175,6 +175,8 @@ function normalizeSelection(
   input: ComposerConfigurationInput,
 ): PromptConfiguration | undefined {
   const model = findModel(input.models, requested.provider, requested.model)
+    ?? findModel(input.models, requested.provider, input.current.model)
+    ?? modelsForSource(input.models, requested.provider)[0]
     ?? findModel(input.models, input.current.provider, input.current.model)
     ?? input.models[0]
   const preset = input.presets.find((option) => option.id === requested.agentPreset)
@@ -188,6 +190,10 @@ function normalizeSelection(
   if (effort === undefined) return undefined
   return {
     provider: model.provider,
+    // Send the model id exactly as the catalog advertises it. Relay providers
+    // expose prefixed ids (`deepseek/deepseek-v4-flash` under the `commandcode`
+    // group) and the runtime matches selectModel by that exact id; stripping
+    // the prefix would produce "provider has no configured model".
     model: model.id,
     reasoningEffort: effort.id,
     agentPreset: preset.id,
@@ -200,7 +206,16 @@ function findModel(
   provider: string,
   model: string,
 ): ModelConfigurationOption | undefined {
-  return models.find((option) => option.provider === provider && option.id === model)
+  // Relay catalogs expose prefixed ids (e.g. `deepseek/deepseek-v4-pro`) while
+  // the session's current model may report the bare id (or vice versa). Match
+  // on both the exact id and the suffix after the last `/`, but stay inside
+  // the requested provider: crossing groups can attribute a model to a
+  // provider that does not actually offer it (e.g. a `deepseek-v4-flash` pick
+  // landing on the `commandcode` group), which the runtime rejects.
+  const bare = model.split('/').pop() ?? model
+  return models.find((option) =>
+    option.provider === provider
+    && (option.id === model || option.id.split('/').pop() === bare || option.id === bare))
 }
 
 export function modelsForSource(

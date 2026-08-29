@@ -10,6 +10,8 @@ export interface ModelConfigurationOption extends ConfigurationOption {
   readonly provider: string
   readonly providerName: string
   readonly reasoning: readonly ConfigurationOption[]
+  /** Whether the model accepts image input; drives the picker badge. */
+  readonly imageInput?: boolean
 }
 
 export interface ComposerConfigurationInput {

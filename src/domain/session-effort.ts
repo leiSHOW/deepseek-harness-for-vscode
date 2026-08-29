@@ -12,11 +12,17 @@ export type EffortIntent = 'auto' | ReasoningEffort
 export interface AutoEffortSignals {
   readonly promptTokens: number
   readonly attachmentCount: number
+  /**
+   * Image parts riding with the prompt. Auto model selection must never move
+   * an image prompt onto a text-only model: the harness admission check would
+   * reject it, naming whatever model the switch landed on.
+   */
+  readonly imageCount?: number
   readonly historyTurns: number
 }
 
 /** Prompt-level signals the webview supplies; history turns are derived locally. */
-export type PromptEffortSignals = Pick<AutoEffortSignals, 'promptTokens' | 'attachmentCount'>
+export type PromptEffortSignals = Pick<AutoEffortSignals, 'promptTokens' | 'attachmentCount' | 'imageCount'>
 
 export function isAutoEffort(value: string): value is 'auto' {
   return value === 'auto'

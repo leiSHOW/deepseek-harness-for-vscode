@@ -199,6 +199,33 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.phase = 'starting'
     this.error = undefined
     this.fireChange()
+    // Startup watchdog: the gateway process may come up while one of the
+    // baseline RPCs (host.describe, provider/settings/models describe,
+    // session list) hangs forever — e.g. a misconfigured custom provider whose
+    // settings namespace refuses to answer. Without a deadline the workbench
+    // would sit on the "Starting Harness" screen indefinitely. Race the whole
+    // boot against a timer; on expiry, surface a clear error instead.
+    const watchdog = new Promise<never>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(vscode.l10n.t(
+          'The bundled Harness runtime started but the Gateway baseline did not settle within {0}s. Check the output logs and your provider configuration.',
+          String(START_BASELINE_TIMEOUT_S),
+        )))
+      }, START_BASELINE_TIMEOUT_S * 1_000)
+      timer.unref?.()
+    })
+    try {
+      await Promise.race([this.runStartBaseline(), watchdog])
+      this.phase = 'connected'
+    } catch (cause) {
+      this.phase = 'error'
+      this.error = errorMessage(cause)
+      this.output.appendLine(`[gateway] ${this.error}`)
+    }
+    this.fireChange()
+  }
+
+  private async runStartBaseline(): Promise<void> {
     try {
       const url = await this.runtime.start()
       this.client = new NodeGatewayClient(url)
@@ -227,13 +254,15 @@ export class HarnessGatewayService implements vscode.Disposable {
           this.output.appendLine(vscode.l10n.t('[gateway] Failed to load recent sessions: {0}', errorMessage(cause)))
         }
       }
-      this.phase = 'connected'
     } catch (cause) {
+      // A failed baseline must still tear down the half-started runtime so a
+      // retry starts from a clean slate.
       this.phase = 'error'
       this.error = errorMessage(cause)
       this.output.appendLine(`[gateway] ${this.error}`)
+      await this.runtime.stop().catch(() => undefined)
+      throw cause
     }
-    this.fireChange()
   }
 
   async restart(): Promise<void> {
@@ -374,7 +403,24 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (agentPreset !== undefined) await this.configuration.setAgentPresetIfKnown(agentPreset)
     await this.refreshSessionList()
     await this.selectSession(String(created.sessionId))
-    await this.selectModel(config.provider, config.model, config.reasoningEffort, false)
+    // Applying the persisted provider/model pair can fail when the two were
+    // persisted out of sync (e.g. provider switched to `commandcode` while the
+    // model stayed `deepseek-v4-flash`). selectModel() self-corrects when the
+    // catalog is loaded; when it is not, fall back to the provider's first
+    // advertised model, and if that is unknown too, let the runtime keep its
+    // own default instead of failing session creation.
+    try {
+      await this.selectModel(config.provider, config.model, config.reasoningEffort, false)
+    } catch {
+      // selectModel already prefers the same model by bare id suffix; this
+      // fallback only runs when the catalog is not loaded yet, so pick the
+      // provider's first advertised model and let the runtime settle.
+      const providerModels = this.modelsFor(config.provider)
+      const fallback = providerModels[0]
+      if (fallback !== undefined) {
+        await this.selectModel(config.provider, fallback.id, config.reasoningEffort, false)
+      }
+    }
     const permission = projectionPermissions(this.projections.permissions)?.currentValue
     if (permission !== config.permissionMode) await this.applyPermission(config.permissionMode, false)
     return String(created.sessionId)
@@ -686,7 +732,20 @@ export class HarnessGatewayService implements vscode.Disposable {
           summary.agentPreset ?? this.configuration.get().agentPreset,
           configuration.agentPreset,
         )
-      if (transition === 'create-session' || !this.isSessionBusy(sessionId)) {
+      // Image admission is checked against the session's live selection when
+      // the prompt is enqueued, not when its turn starts. A queued image
+      // prompt therefore cannot wait for the turn boundary when the staged
+      // configuration moves to another model: apply the route change ahead of
+      // admission even while a turn is running. The user staged that change
+      // explicitly, and DSH snapshots per step, so only later steps observe it.
+      const current = this.models?.current
+      const currentModel = current?.model.split('/').pop() ?? current?.model
+      const stagedModel = configuration.model.split('/').pop() ?? configuration.model
+      const changesRoute = current !== undefined
+        && (current.provider !== configuration.provider
+          || currentModel !== stagedModel)
+      const carriesImages = attachments.some((attachment) => attachment.kind === 'image')
+      if (transition === 'create-session' || !this.isSessionBusy(sessionId) || (carriesImages && changesRoute)) {
         // Fresh-session forks are idle by construction; the idle fast path
         // applies in-order ahead of admission.
         await this.applyPromptConfiguration(configuration, signals)
@@ -874,16 +933,30 @@ export class HarnessGatewayService implements vscode.Disposable {
   async selectModel(provider: string, model: string, reasoningEffort?: string, persist = true, signals?: PromptEffortSignals): Promise<void> {
     if (this.subagentAddress !== undefined) throw new Error(vscode.l10n.t('Sub-agents use the model selected when they were created.'))
     const sessionId = this.requireActiveSession()
+    // Relay catalogs advertise prefixed ids (`deepseek/deepseek-v4-flash`
+    // under a `commandcode` group) and the runtime matches selectModel by that
+    // exact id, so the catalog id is passed through verbatim.
+    let resolvedModel = model
+    // The persisted model belongs to the provider the user last used, not
+    // necessarily to the provider they are on now. When the catalog is loaded
+    // and the requested model is not offered by this provider, fall back to
+    // the provider's own first advertised model — never guess by bare id
+    // suffix, because the same name under a different provider is a different
+    // product.
+    const providerModels = this.modelsFor(provider)
+    if (providerModels.length > 0 && !providerModels.some((entry) => entry.id === model)) {
+      resolvedModel = providerModels[0]!.id
+    }
     // 'auto' is an extension-side selection layer: it is translated to one of
     // the model's own tiers here, never forwarded to the harness verbatim.
     let resolved: string | undefined
     if (reasoningEffort !== undefined && reasoningEffort !== '') {
-      resolved = resolveEffortIntent(reasoningEffort as EffortIntent, this.reasoningEffortOptions(provider, model), this.autoSignals(signals))
+      resolved = resolveEffortIntent(reasoningEffort as EffortIntent, this.reasoningEffortOptions(provider, resolvedModel), this.autoSignals(signals))
     }
     const selected = valueOf(await this.requireClient().sessions.selectModel({
       sessionId: sessionId as SessionId,
       provider,
-      model,
+      model: resolvedModel,
       ...(resolved === undefined ? {} : { reasoningEffort: resolved }),
     }))
     if (this.models !== undefined) this.models = { ...this.models, current: selected.selected }
@@ -903,7 +976,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
     if (persist) {
       await this.configuration.setProviderIfConfigured(provider)
-      await this.configuration.setModelIfKnown(model)
+      // Persist the model unconditionally: relay providers expose ids outside
+      // the bundled MODEL_OPTIONS whitelist, and leaving the default model as
+      // `deepseek-v4-flash` while the provider is `commandcode` makes every
+      // new session fail with "no configured model".
+      await this.configuration.setModelId(resolvedModel)
       if (resolved !== undefined) await this.configuration.setReasoningEffortIfKnown(resolved)
     }
     this.fireChange()
@@ -1518,11 +1595,13 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /** The model's supported reasoning tiers, falling back to the harness set.
    * Provider is matched first: distinct providers may expose the same model id
-   * with different effort catalogs. */
+   * with different effort catalogs. Relay catalogs prefix ids, so the bare
+   * suffix is matched too. */
   private reasoningEffortOptions(provider: string, model: string): readonly { readonly id: string }[] {
+    const bare = model.split('/').pop() ?? model
     const efforts = this.models?.groups
       .find((group) => group.id === provider)
-      ?.models.find((entry) => entry.id === model)
+      ?.models.find((entry) => entry.id === model || entry.id.split('/').pop() === bare || entry.id === bare)
       ?.reasoning?.efforts
     if (efforts !== undefined && efforts.length > 0) return efforts
     return DEFAULT_REASONING_OPTIONS
@@ -1533,6 +1612,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     return {
       promptTokens: prompt?.promptTokens ?? 0,
       attachmentCount: prompt?.attachmentCount ?? 0,
+      imageCount: prompt?.imageCount ?? 0,
       // Only the currently loaded history page (max 80 messages) is available
       // here, so this heuristic is intentionally window-scoped.
       historyTurns: projectSessionStats(this.entries).turns,
@@ -1854,6 +1934,8 @@ function subagentView(entry: SubagentListEntry): SubagentView {
 
 const EFFORT_INTENT_STATE_KEY = 'deepseekHarness.sessionEffortIntents'
 const SESSION_META_STATE_KEY = 'deepseekHarness.sessionMeta'
+/** How long the startup baseline may take before the watchdog fails the boot. */
+const START_BASELINE_TIMEOUT_S = 45
 const DEFAULT_REASONING_OPTIONS: readonly { readonly id: string }[] = [
   { id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' },
 ]

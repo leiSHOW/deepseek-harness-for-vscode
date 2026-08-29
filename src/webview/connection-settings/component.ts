@@ -190,6 +190,11 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
       test.textContent = t('testConnection')
       testResult.classList.remove('hidden', 'success', 'error', 'warn')
       if (result.status === 'success') {
+        // Adopt the endpoint's advertised model ids into the form so the user
+        // doesn't have to type them by hand; they can still edit afterwards.
+        if (result.models !== undefined && result.models.length > 0 && !models.disabled) {
+          models.value = result.models.map((model) => model.id).join(', ')
+        }
         testResult.textContent = t('connectionModelsFound', { count: result.modelCount ?? 0 })
         testResult.classList.add('success')
       } else if (result.status === 'unsupported') {

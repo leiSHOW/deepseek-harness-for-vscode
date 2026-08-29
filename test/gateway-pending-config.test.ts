@@ -80,6 +80,7 @@ function createService(): { service: GatewayTestHarness; client: TestClient; per
     setAgentPresetIfKnown: vi.fn(),
     setProviderIfConfigured: vi.fn(),
     setModelIfKnown: vi.fn(),
+    setModelId: vi.fn(),
     setReasoningEffortIfKnown: vi.fn(),
   } as unknown as ConfigurationService
 
@@ -195,6 +196,42 @@ describe('gateway staged configuration', () => {
 
     expect(client.sessions.selectModel).not.toHaveBeenCalled()
     expect(client.sessions.prompt).toHaveBeenCalledTimes(1)
+    expect(service.pendingConfigurations.get('s1')).toHaveLength(1)
+  })
+
+  it('applies a staged model change ahead of admission when a queued prompt carries images', async () => {
+    const { service, client } = createService()
+    service.summaries.set('s1', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+    service.models = {
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      groups: [],
+    }
+    const image = { kind: 'image', mediaType: 'image/png', data: 'Zm9v' }
+
+    await service.sendPrompt('look at this', 'queue', [image], config('max'))
+
+    // The image admission check runs at enqueue time against the live
+    // selection, so the staged switch to deepseek-v4-flash must land first.
+    expect(client.sessions.selectModel).toHaveBeenCalledTimes(1)
+    expect(client.sessions.selectModel).toHaveBeenCalledWith(expect.objectContaining({ model: 'deepseek-v4-flash' }))
+    expect(service.pendingConfigurations.size).toBe(0)
+    expect(client.sessions.prompt).toHaveBeenCalledTimes(1)
+  })
+
+  it('still parks the configuration when a queued image prompt keeps the model', async () => {
+    const { service, client } = createService()
+    service.summaries.set('s1', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+    service.models = {
+      current: { provider: 'deepseek-official', model: 'deepseek/deepseek-v4-flash' },
+      groups: [],
+    }
+    const image = { kind: 'image', mediaType: 'image/png', data: 'Zm9v' }
+
+    // Same provider and same bare model id (relay-prefixed current): nothing
+    // to move, so the effort-only change keeps riding the pending queue.
+    await service.sendPrompt('queued', 'queue', [image], config('max'))
+
+    expect(client.sessions.selectModel).not.toHaveBeenCalled()
     expect(service.pendingConfigurations.get('s1')).toHaveLength(1)
   })
 

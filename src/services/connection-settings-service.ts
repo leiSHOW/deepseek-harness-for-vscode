@@ -11,6 +11,8 @@ import type {
   ConnectionSettingsState,
 } from '../domain/connection-settings.js'
 import { validateBaseUrl } from '../domain/base-url.js'
+import { modelCapacity } from '../domain/model-capacity.js'
+import { supportsImageInput } from '../domain/model-modalities.js'
 import {
   DEEPSEEK_OFFICIAL_BASE_URL,
   DEEPSEEK_OFFICIAL_PROVIDER,
@@ -76,6 +78,8 @@ export class ConnectionSettingsService {
     this.client = client
     await this.migrateLegacySettings()
     await this.migrateRelayReasoningEfforts()
+    await this.migrateRelayCapacities()
+    await this.migrateRelayImageModalities()
     await this.refresh()
   }
 
@@ -342,6 +346,84 @@ export class ConnectionSettingsService {
     valueOf(await client.settings.mutate({ ns: PI_AI_SETTINGS_NS, ops, expectedRevision: piAi.revision }))
   }
 
+  /**
+   * Fills in contextWindow/maxTokens on relay models written by older builds.
+   * The pi-ai adapter falls back to a 256K default when a model entry carries
+   * no capacity, which misstates 1M-window models; writing the known capacity
+   * makes the context meter accurate for Auto and manual selections alike.
+   * Idempotent: entries that already carry a capacity are untouched, and ids
+   * outside the capacity table keep their entries as-is.
+   */
+  private async migrateRelayCapacities(): Promise<void> {
+    const client = this.requireClient()
+    const described = valueOf(await client.settings.describe({}))
+    if (!described.writable) return
+    const piAi = described.namespaces.find((item) => item.ns === PI_AI_SETTINGS_NS)
+    if (piAi === undefined) return
+    const providers = valueAt(piAi.user, ['providers'])
+    if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) return
+    const ops: SettingsPathOpView[] = []
+    for (const [route, profile] of Object.entries(providers)) {
+      const models = valueAt(profile, ['models'])
+      if (!Array.isArray(models)) continue
+      let changed = false
+      const upgraded = models.map((model) => {
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) return model
+        const record = model as Record<string, unknown>
+        const id = record['id']
+        if (typeof id !== 'string' || record['contextWindow'] !== undefined) return model
+        const capacity = modelCapacity(id)
+        if (capacity === undefined) return model
+        changed = true
+        return {
+          ...record,
+          contextWindow: capacity.contextWindow,
+          ...(capacity.maxTokens === undefined ? {} : { maxTokens: capacity.maxTokens }),
+        }
+      })
+      if (changed) ops.push({ op: 'set', path: ['providers', route, 'models'], value: upgraded })
+    }
+    if (ops.length === 0) return
+    valueOf(await client.settings.mutate({ ns: PI_AI_SETTINGS_NS, ops, expectedRevision: piAi.revision }))
+  }
+
+  /**
+   * Declares image input on relay vision models written by older builds. The
+   * pi-ai adapter serves an entry without `input` as text-only, so a relay
+   * vision model rejected image prompts even after the session switched to it.
+   * Idempotent: entries that already declare modalities are untouched, and ids
+   * without the vision naming convention keep their entries as-is.
+   */
+  private async migrateRelayImageModalities(): Promise<void> {
+    const client = this.requireClient()
+    const described = valueOf(await client.settings.describe({}))
+    if (!described.writable) return
+    const piAi = described.namespaces.find((item) => item.ns === PI_AI_SETTINGS_NS)
+    if (piAi === undefined) return
+    const providers = valueAt(piAi.user, ['providers'])
+    if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) return
+    const ops: SettingsPathOpView[] = []
+    for (const [route, profile] of Object.entries(providers)) {
+      const models = valueAt(profile, ['models'])
+      if (!Array.isArray(models)) continue
+      let changed = false
+      const upgraded = models.map((model) => {
+        if (typeof model !== 'object' || model === null || Array.isArray(model)) return model
+        const record = model as Record<string, unknown>
+        const id = record['id']
+        if (typeof id !== 'string' || !supportsImageInput(id)) return model
+        // pi-ai's declaredInput treats an empty list as undeclared too.
+        const input = record['input']
+        if (Array.isArray(input) && input.length > 0) return model
+        changed = true
+        return { ...record, input: ['text', 'image'] }
+      })
+      if (changed) ops.push({ op: 'set', path: ['providers', route, 'models'], value: upgraded })
+    }
+    if (ops.length === 0) return
+    valueOf(await client.settings.mutate({ ns: PI_AI_SETTINGS_NS, ops, expectedRevision: piAi.revision }))
+  }
+
   private requireClient(): ProviderControlClient {
     if (this.client === undefined) throw new Error('Harness Gateway is not connected.')
     return this.client
@@ -408,12 +490,23 @@ function isLegacyRelayReasoningEfforts(efforts: object): boolean {
     && legacy.every(([key, value]) => (efforts as Record<string, unknown>)[key] === value)
 }
 
-function relayModels(models: readonly string[]): { id: string; reasoningEfforts: object }[] {
+function relayModels(models: readonly string[]): { id: string; reasoningEfforts: object; input?: readonly string[]; contextWindow?: number; maxTokens?: number }[] {
   const ids = models.length > 0 ? models : ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']
-  return ids.map((id) => ({
-    id,
-    reasoningEfforts: { ...RELAY_REASONING_EFFORTS },
-  }))
+  return ids.map((id) => {
+    const capacity = modelCapacity(id)
+    return {
+      id,
+      reasoningEfforts: { ...RELAY_REASONING_EFFORTS },
+      // The pi-ai adapter serves an entry without `input` as text-only, so a
+      // vision route must declare its modalities or image prompts are rejected
+      // at admission even after the session switched to it.
+      ...(supportsImageInput(id) ? { input: ['text', 'image'] } : {}),
+      ...(capacity === undefined ? {} : {
+        contextWindow: capacity.contextWindow,
+        ...(capacity.maxTokens === undefined ? {} : { maxTokens: capacity.maxTokens }),
+      }),
+    }
+  })
 }
 
 function deepSeekRelayProfile(displayName: string, baseURL: string, apiKeyEnv: string, models?: readonly string[]): object {

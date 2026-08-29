@@ -25,7 +25,6 @@ export function renderComposer(active: ActiveSessionView | undefined): void {
   components.contextMeter.update(active?.contextPressure)
   elements.composerStatus.textContent = composerStatusText(active, {
     oneShotReadOnly: t('oneShotReadOnly'),
-    runningQueue: t('runningQueue'),
     continuableSubagent: t('continuableSubagent'),
   })
 }

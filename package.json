@@ -234,6 +234,7 @@
     "markdown-it": "15.0.0",
     "node": "22.22.3",
     "pnpm": "11.21.0",
+    "undici": "^7.29.0",
     "ws": "^8.21.3"
   },
   "allowScripts": {

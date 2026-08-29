@@ -15,6 +15,8 @@ type Translate = (key: WebviewMessageKey, args?: MessageArguments) => string
 export interface ComposerConfigurationComponent {
   readonly update: (input: ComposerConfigurationInput | undefined) => void
   readonly selection: () => PromptConfiguration | undefined
+  /** Whether the staged model accepts image input; undefined when unknown. */
+  readonly supportsImageInput: () => boolean | undefined
   readonly markSubmitted: () => void
   readonly reset: () => void
   readonly open: (section?: ConfigurationSection) => void
@@ -97,6 +99,14 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
 
   selection(): PromptConfiguration | undefined {
     return this.store.snapshot()?.selection
+  }
+
+  supportsImageInput(): boolean | undefined {
+    const snapshot = this.store.snapshot()
+    if (snapshot === undefined) return undefined
+    // Auto mode has not resolved a concrete model yet; do not block on a guess.
+    if (snapshot.autoActive) return undefined
+    return snapshot.model.imageInput
   }
 
   markSubmitted(): void {
@@ -268,17 +278,18 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const { translate: t } = this.options
     this.toggle.disabled = !snapshot.input.connected || !snapshot.input.editable
     if (this.toggle.disabled) this.close()
-    // Auto mode: the toggle leads with the mode and shows the model the last
-    // Auto send actually landed on (it follows model switches in real time).
+    // Auto mode: the model and effort are both chosen per task at send time,
+    // so the toggle leads with the mode and never shows a concrete model name
+    // (the Auto picker would otherwise claim a fixed model that is not fixed).
     if (snapshot.autoActive) {
       this.toggleModel.textContent = t('autoMode')
-      this.toggleMode.textContent = snapshot.model.label
+      this.toggleMode.textContent = t('effortAuto')
     } else {
-      this.toggleModel.textContent = snapshot.model.label
+      this.toggleModel.textContent = shortModelLabel(snapshot.model.label)
       this.toggleMode.textContent = snapshot.effort.label
     }
     this.toggle.title = snapshot.autoActive
-      ? t('configurationSummaryAuto', { model: snapshot.model.label })
+      ? t('configurationSummaryAuto')
       : t('configurationSummary', {
         model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
         mode: snapshot.preset.label,
@@ -311,7 +322,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   }
 
   private renderModels(snapshot: ComposerConfigurationSnapshot): void {
-    this.modelsCurrent.textContent = snapshot.model.label
+    this.modelsCurrent.textContent = snapshot.autoActive ? this.options.translate('autoMode') : snapshot.model.label
     const fragment = this.options.document.createDocumentFragment()
     const groups = new Map<string, ModelConfigurationOption[]>()
     for (const model of snapshot.input.models) {
@@ -322,7 +333,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     if (groups.size <= 1) {
       // A single provider needs no extra level: list its models directly.
       for (const models of groups.values()) {
-        for (const model of models) fragment.append(this.modelButton(snapshot, model))
+        fragment.append(this.modelList(snapshot, models))
       }
     } else {
       // Multiple providers get a master-detail layout: provider tabs on the
@@ -336,14 +347,31 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       detail.className = 'configuration-provider-models'
       for (const [provider, models] of groups) {
         rail.append(this.providerTab(snapshot, provider, models, provider === openProvider))
-        if (provider === openProvider) {
-          for (const model of models) detail.append(this.modelButton(snapshot, model))
-        }
+        if (provider === openProvider) detail.append(this.modelList(snapshot, models))
       }
       layout.append(rail, detail)
       fragment.append(layout)
     }
     this.models.replaceChildren(fragment)
+  }
+
+  /**
+   * Renders a provider's model column as a scrollable list: the container is
+   * sized to a four-row viewport (see .configuration-model-list in chat.css)
+   * and the rest of the catalog is reached by scrolling. The currently
+   * selected model is scrolled into view on first paint.
+   */
+  private modelList(snapshot: ComposerConfigurationSnapshot, models: readonly ModelConfigurationOption[]): HTMLElement {
+    const { document } = this.options
+    const container = document.createElement('div')
+    container.className = 'configuration-model-list'
+    for (const model of models) container.append(this.modelButton(snapshot, model))
+    // Bring the active row into the four-row viewport after the buttons land.
+    queueMicrotask(() => {
+      const active = container.querySelector('.configuration-option.active')
+      active?.scrollIntoView({ block: 'nearest' })
+    })
+    return container
   }
 
   private providerTab(
@@ -364,7 +392,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     if (selected !== undefined && !open) {
       const current = this.options.document.createElement('span')
       current.className = 'configuration-provider-current'
-      current.textContent = selected.label
+      current.textContent = snapshot.autoActive ? this.options.translate('autoMode') : selected.label
       tab.append(current)
     }
     const chevron = this.options.document.createElement('span')
@@ -514,6 +542,15 @@ function presetIcon(id: string): string {
   if (id === 'minimal') return '—'
   if (id === 'cordis') return '✦'
   return '◎'
+}
+
+/**
+ * Strips redundant provider/org prefixes (e.g. `deepseek/deepseek-v4-pro` -> `deepseek-v4-pro`)
+ * so the pill button remains clean and does not crowd out adjacent toolbar controls.
+ */
+function shortModelLabel(label: string): string {
+  const parts = label.split('/')
+  return parts.length > 1 ? parts[parts.length - 1]! : label
 }
 
 export type { ComposerConfigurationInput, ModelConfigurationOption }

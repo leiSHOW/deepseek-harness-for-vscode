@@ -261,17 +261,26 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         const signals = {
           promptTokens: Math.ceil(textChars / 4),
           attachmentCount: attachments.length,
+          imageCount: images.length,
         }
         // The gateway owns configuration staging: idle prompts apply it ahead
         // of admission; queued prompts keep it in a FIFO pending queue applied
         // at the next turn boundary. No snapshot check races here.
-        await this.gateway.sendPrompt(
-          text,
-          value.mode === 'steer' ? 'steer' : 'queue',
-          attachments,
-          staged,
-          signals,
-        )
+        try {
+          await this.gateway.sendPrompt(
+            text,
+            value.mode === 'steer' ? 'steer' : 'queue',
+            attachments,
+            staged,
+            signals,
+          )
+        } catch (cause) {
+          // The prompt never entered the queue: tell the webview to roll back
+          // its optimistic echo so the failed message does not linger as if it
+          // had been sent (and later real messages do not stack behind it).
+          await this.postToHosts({ type: 'sendPromptFailed' })
+          throw cause
+        }
         break
       }
       case 'cancel':
@@ -442,10 +451,9 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         break
       }
       case 'sessionChangesReview': {
-        const state = await this.gateway.snapshot()
-        const sessionId = state.active?.id
-        if (sessionId === undefined) break
-        await this.handleWorktreeAction(sessionId)
+        // Open VS Code's native Source Control "Changes" review view: commit
+        // box, file filter, per-file add/remove stats and review progress.
+        await vscode.commands.executeCommand('workbench.view.scm')
         break
       }
     }
@@ -589,6 +597,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       <button id="import-session" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">⤓</button>
       <button id="export-session" class="icon-button compact" title="${text('exportSession')}" aria-label="${text('exportSession')}">↥</button>
       <span id="session-stats" class="session-stats" title="${text('sessionStats')}"></span>
+      <span id="session-usage" class="session-usage hidden" title="${text('sessionTokenUsage')}"></span>
     </div>
   </header>
 
@@ -762,7 +771,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
             <button id="details-toggle" class="text-button" title="${text('contextDescription')}">${text('context')}</button>
             <div id="permission" class="permission-picker hidden">
               <button id="permission-toggle" class="permission-toggle" type="button" title="${text('permissionDescription')}" aria-label="${text('permissionDescription')}" aria-haspopup="listbox" aria-expanded="false">
-                <span class="permission-toggle-icon">◈</span>
+                <span class="permission-toggle-icon">◆</span>
                 <span id="permission-toggle-label" class="permission-toggle-label"></span>
                 <span class="permission-toggle-chevron">⌄</span>
               </button>
@@ -782,13 +791,12 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           </div>
           <div class="composer-meta">
             <span id="composer-status" class="composer-status"></span>
-            <span id="context-meter" class="context-meter hidden" role="img">
-              <span class="context-meter-ring" aria-hidden="true"></span>
-              <span id="context-meter-value" class="context-meter-value"></span>
-            </span>
-            <button id="compact" class="compact-button" type="button" title="${text('compact')}">⇅ <span>${text('compact')}</span></button>
           </div>
           <div class="composer-actions">
+            <button id="context-meter" class="context-meter hidden" type="button" title="${text('compact')}" aria-label="${text('compact')}">
+              <span class="context-meter-ring" aria-hidden="true"></span>
+              <span id="context-meter-value" class="context-meter-value"></span>
+            </button>
             <button id="configuration-toggle" class="configuration-toggle" type="button" title="${text('configurationOpen')}" aria-label="${text('configurationOpen')}" aria-expanded="false" aria-controls="configuration-panel" disabled>
               <span id="configuration-toggle-model" class="configuration-toggle-model">${text('model')}</span>
               <span id="configuration-toggle-mode" class="configuration-toggle-effort">${text('reasoning')}</span>
@@ -798,7 +806,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           </div>
         </div>
       </section>
-      <p class="composer-hint">${text('composerHint')}</p>
+      <p id="composer-hint" class="composer-hint">${text('composerHint')}</p>
     </section>
   </main>
   <section id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="${text('connectionSettings')}">

@@ -85,9 +85,57 @@ describe('ConnectionSettingsService', () => {
 
     expect(route).toBe('plain-relay')
     expect(harness.document.piAi.value.providers['plain-relay']!.models).toEqual([
-      { id: 'deepseek-v4-flash', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'deepseek-v4-pro', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'deepseek-v4-flash-vision-exp', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v4-flash', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v4-pro', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+    ])
+  })
+
+  it('declares image input for vision models a custom relay exposes', async () => {
+    const harness = fakeHarness()
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+
+    const route = await service.apply({
+      provider: '__new__',
+      name: 'Vision Relay',
+      baseUrl: 'https://relay.example.com/v1',
+      apiKey: 'sk-secret',
+      models: ['deepseek-v4-flash-vision-exp', 'plain-text-model'],
+    })
+
+    expect(harness.document.piAi.value.providers[route]!.models).toEqual([
+      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'plain-text-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+    ])
+  })
+
+  it('declares image input on vision relays written by older builds', async () => {
+    const harness = fakeHarness({
+      'old-relay': {
+        displayName: 'Old Relay',
+        apiKeyEnv: 'PROVIDER_OLD_RELAY_API_KEY',
+        api: 'openai-completions',
+        baseURL: 'https://relay.example.com/v1',
+        models: [
+          { id: 'deepseek-v4-flash-vision-exp', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+          { id: 'custom-vision-x', input: [], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+          { id: 'declared-vision-y', input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+          { id: 'plain-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+        ],
+      },
+    })
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+
+    const models = harness.document.piAi.user.providers['old-relay']!['models'] as unknown[]
+    expect(models).toEqual([
+      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      // pi-ai's declaredInput treats [] as undeclared, so the migration fills it.
+      { id: 'custom-vision-x', input: ['text', 'image'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      // An explicit text-only declaration is honored.
+      { id: 'declared-vision-y', input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'plain-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
     ])
   })
 
@@ -112,7 +160,7 @@ describe('ConnectionSettingsService', () => {
 
     const models = harness.document.piAi.user.providers['volcengine-ark']!['models'] as unknown[]
     expect(models).toEqual([
-      { id: 'deepseek-v4-flash', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v4-flash', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
       { id: 'custom-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'custom-max' } },
       'plain-string-model',
     ])

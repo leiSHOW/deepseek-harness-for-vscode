@@ -14,6 +14,7 @@ import {
   followStream,
   interactionArmed,
   menuState,
+  optimisticBubbles,
   payload,
   post,
   searchTimer,
@@ -21,6 +22,7 @@ import {
   setFollowStream,
   setInteractionArmed,
   setMenuState,
+  setOptimisticBubbles,
   setPayload,
   setSearchResults,
   setSearchTimer,
@@ -103,6 +105,16 @@ window.addEventListener('message', (event) => {
     components.connectionSettings.renderTestResult(event.data)
     return
   }
+  if (event.data?.type === 'sendPromptFailed') {
+    // The host rejected the prompt before it entered the queue (e.g. the model
+    // does not support image input). Roll back the optimistic echo so the
+    // failed message does not linger as if it had been sent.
+    if (optimisticBubbles.length > 0) {
+      setOptimisticBubbles([])
+      render()
+    }
+    return
+  }
   if (event.data?.type !== 'state') return
   setWorkspaceFolderOpen(event.data.workspaceFolderOpen === true)
   setPayload(event.data)
@@ -151,7 +163,6 @@ elements.fork.addEventListener('click', () => {
 elements.importSession.addEventListener('click', () => post('importSession'))
 elements.historyImport.addEventListener('click', () => post('importSession'))
 elements.exportSession.addEventListener('click', () => post('exportSession'))
-elements.compact.addEventListener('click', () => post('compact'))
 elements.setApiKey.addEventListener('click', () => post('setApiKey'))
 elements.openSettings.addEventListener('click', () => components.connectionSettings.open())
 elements.retry.addEventListener('click', () => post('retry'))
