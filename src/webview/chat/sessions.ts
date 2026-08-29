@@ -241,6 +241,7 @@ export function togglePermissionPopup(): void {
 function openPermissionPopup(): void {
   if (elements.permissionToggle.disabled) return
   closePermissionConfirm()
+  anchorPermissionOverlay(elements.permissionPopup, elements.permissionToggle)
   elements.permissionPopup.classList.remove('hidden')
   elements.permissionToggle.classList.add('active')
   elements.permissionToggle.setAttribute('aria-expanded', 'true')
@@ -248,18 +249,44 @@ function openPermissionPopup(): void {
 
 export function closePermissionPopup(): void {
   elements.permissionPopup.classList.add('hidden')
+  resetPermissionOverlayAnchor(elements.permissionPopup)
   elements.permissionToggle.classList.remove('active')
   elements.permissionToggle.setAttribute('aria-expanded', 'false')
 }
 
 export function openPermissionConfirm(): void {
+  anchorPermissionOverlay(elements.permissionConfirm, elements.permissionToggle)
   elements.permissionConfirm.classList.remove('hidden')
   elements.permissionConfirmAccept.focus()
 }
 
 export function closePermissionConfirm(refocus = false): void {
   elements.permissionConfirm.classList.add('hidden')
+  resetPermissionOverlayAnchor(elements.permissionConfirm)
   if (refocus) elements.permissionToggle.focus()
+}
+
+/**
+ * The permission popups are DOM children of .composer-tools, which switches to
+ * overflow: hidden below 680px (chat-responsive.css) so the toolbar cannot
+ * push the shell apart on narrow sidebars. That clip also cut off these
+ * upward-opening overlays, making the selector silently vanish on narrow
+ * windows. position: fixed escapes every ancestor clip while staying glued to
+ * the toggle's current viewport position.
+ */
+function anchorPermissionOverlay(overlay: HTMLElement, anchor: HTMLElement): void {
+  const rect = anchor.getBoundingClientRect()
+  const width = Math.min(220, window.innerWidth - 16)
+  const left = Math.max(4, Math.min(rect.left, window.innerWidth - width - 4))
+  overlay.style.position = 'fixed'
+  overlay.style.left = left + 'px'
+  overlay.style.bottom = Math.max(4, window.innerHeight - rect.top + 6) + 'px'
+}
+
+function resetPermissionOverlayAnchor(overlay: HTMLElement): void {
+  overlay.style.position = ''
+  overlay.style.left = ''
+  overlay.style.bottom = ''
 }
 
 export function toggleHistory(open: boolean): void {
