@@ -155,6 +155,7 @@
   "[host] Starting bundled Harness Gateway (cwd={cwd}, model={model}, reasoning={reasoning}, preset={preset})": "[host] 启动内置 Harness Gateway（cwd={cwd}, model={model}, reasoning={reasoning}, preset={preset}）",
   "The bundled Harness runtime timed out while starting. Check the output logs.": "内置 Harness 运行时启动超时，请查看输出日志。",
   "The bundled Harness runtime exited (code={code}, signal={signal}).": "内置 Harness 运行时已退出（code={code}, signal={signal}）。",
+  "The bundled Harness runtime started but the Gateway baseline did not settle within {0}s. Check the output logs and your provider configuration.": "内置 Harness 运行时已启动，但 Gateway 基线在 {0} 秒内未就绪。请查看输出日志与提供商配置。",
   "[host] Failed to terminate the process tree with taskkill; falling back to direct termination. Child processes may remain.": "[host] taskkill 进程树终止失败，回退为直接终止（子进程可能残留）。",
   "Chat history": "对话历史",
   "Extension settings": "扩展设置",

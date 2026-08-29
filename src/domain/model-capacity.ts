@@ -100,7 +100,7 @@ export function modelCapacity(modelId: string): ModelCapacity | undefined {
 }
 
 /** Exact pieces first, then their tag-stripped forms, then the whole id. */
-function lookupCandidates(modelId: string): string[] {
+export function lookupCandidates(modelId: string): string[] {
   const lower = modelId.toLowerCase()
   const candidates = new Set<string>()
   for (const piece of lower.split('/')) {
@@ -118,6 +118,6 @@ function stripVariantTag(piece: string): string {
 }
 
 /** Alphanumeric-only lowercase key: `GLM 5.3 Flash` ≡ `glm-5.3-flash`. */
-function slugKey(value: string): string {
+export function slugKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
 }

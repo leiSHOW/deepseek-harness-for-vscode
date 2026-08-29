@@ -21,6 +21,17 @@ let activeRuntime: HarnessHostRuntime | undefined
 
 /** Activates one self-contained Harness workbench; no external deployment is required. */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // The bundled Gateway always listens on 127.0.0.1, and undici (the fetch
+  // used by the Gateway client) honors system proxy env vars. A global proxy
+  // (Clash/Surge/company VPN) would otherwise route loopback requests through
+  // the proxy and fail with `fetch failed`, leaving the workbench stuck on
+  // "Starting Harness". Loopback must never go through a proxy.
+  const noProxy = new Set((process.env.NO_PROXY ?? process.env.no_proxy ?? '').split(',').map((item) => item.trim()).filter((item) => item !== ''))
+  noProxy.add('127.0.0.1')
+  noProxy.add('localhost')
+  process.env.NO_PROXY = [...noProxy].join(',')
+  process.env.no_proxy = [...noProxy].join(',')
+
   const output = vscode.window.createOutputChannel('DeepSeek Harness', { log: true })
   const configuration = new ConfigurationService()
   const credentials = new CredentialStore(context.secrets)

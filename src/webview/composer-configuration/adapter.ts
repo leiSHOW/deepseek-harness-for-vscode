@@ -47,8 +47,9 @@ export function composerConfigurationInput(
       id: model.id,
       label: model.name,
       ...(model.description === undefined ? {} : { description: model.description }),
-      // The wire catalog drops inputModalities, so the badge falls back to the
-      // id-naming heuristic shared with relay profile writing.
+      // The wire catalog drops inputModalities, so capability comes from the
+      // shared vision table (plus the vision-name fallback) used by admission
+      // and relay profile writing.
       ...(supportsImageInput(model.id) ? { imageInput: true } : {}),
       reasoning: model.reasoning.length === 0
         ? fallbackReasoning

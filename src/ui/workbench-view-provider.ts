@@ -806,7 +806,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           </div>
         </div>
       </section>
-      <p class="composer-hint">${text('composerHint')}</p>
+      <p id="composer-hint" class="composer-hint">${text('composerHint')}</p>
     </section>
   </main>
   <section id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="${text('connectionSettings')}">

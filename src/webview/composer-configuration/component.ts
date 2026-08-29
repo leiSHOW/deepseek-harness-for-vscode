@@ -40,8 +40,6 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private effortDragging = false
   /** Provider tab shown in the model rail; defaults to the selection's. */
   private expandedProvider: string | undefined
-  /** Providers whose model list is expanded past the first few rows. */
-  private readonly expandedModelLists = new Set<string>()
   private readonly panel: HTMLElement
   private readonly toggle: HTMLButtonElement
   private readonly toggleModel: HTMLElement
@@ -358,50 +356,21 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   }
 
   /**
-   * Renders a provider's model column as a capped virtual list: only the
-   * first few rows are in the DOM until the user expands. The currently
-   * selected model is always visible, promoted ahead of the visible window
-   * when it falls outside it.
+   * Renders a provider's model column as a scrollable list: the container is
+   * sized to a four-row viewport (see .configuration-model-list in chat.css)
+   * and the rest of the catalog is reached by scrolling. The currently
+   * selected model is scrolled into view on first paint.
    */
   private modelList(snapshot: ComposerConfigurationSnapshot, models: readonly ModelConfigurationOption[]): HTMLElement {
-    const { document, translate: t } = this.options
+    const { document } = this.options
     const container = document.createElement('div')
     container.className = 'configuration-model-list'
-    const windowSize = 4
-    const selected = models.find((model) => model.provider === snapshot.selection.provider && model.id === snapshot.selection.model)
-    const expanded = this.expandedModelLists.has(models[0]!.provider)
-    const collapsed = !expanded && models.length > windowSize
-    if (!collapsed) {
-      for (const model of models) container.append(this.modelButton(snapshot, model))
-      if (expanded && models.length > windowSize) {
-        const collapse = document.createElement('button')
-        collapse.type = 'button'
-        collapse.className = 'configuration-option configuration-model-reveal'
-        collapse.textContent = t('modelListShowLess')
-        collapse.addEventListener('click', () => {
-          this.expandedModelLists.delete(models[0]!.provider)
-          this.render(this.store.snapshot())
-        })
-        container.append(collapse)
-      }
-      return container
-    }
-    // Keep the selection visible even when it lands past the first window.
-    const ordered = [...models]
-    if (selected !== undefined && ordered.indexOf(selected) >= windowSize) {
-      ordered.splice(ordered.indexOf(selected), 1)
-      ordered.unshift(selected)
-    }
-    for (const model of ordered.slice(0, windowSize)) container.append(this.modelButton(snapshot, model))
-    const reveal = document.createElement('button')
-    reveal.type = 'button'
-    reveal.className = 'configuration-option configuration-model-reveal'
-    reveal.textContent = t('modelListShowMore', { count: String(ordered.length - windowSize) })
-    reveal.addEventListener('click', () => {
-      this.expandedModelLists.add(models[0]!.provider)
-      this.render(this.store.snapshot())
+    for (const model of models) container.append(this.modelButton(snapshot, model))
+    // Bring the active row into the four-row viewport after the buttons land.
+    queueMicrotask(() => {
+      const active = container.querySelector('.configuration-option.active')
+      active?.scrollIntoView({ block: 'nearest' })
     })
-    container.append(reveal)
     return container
   }
 
@@ -534,15 +503,6 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const label = document.createElement('strong')
     label.textContent = option.label
     copy.append(label)
-    // Image-capable models carry a badge so users can tell before attaching a
-    // picture whether the model will accept it.
-    if ('imageInput' in option && option.imageInput === true) {
-      const badge = document.createElement('span')
-      badge.className = 'configuration-option-badge'
-      badge.textContent = '🖼'
-      badge.title = this.options.translate('modelImageInput')
-      copy.append(badge)
-    }
     if (providerName !== undefined && providerName !== '') {
       const provider = document.createElement('small')
       provider.className = 'configuration-option-provider'

@@ -199,6 +199,33 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.phase = 'starting'
     this.error = undefined
     this.fireChange()
+    // Startup watchdog: the gateway process may come up while one of the
+    // baseline RPCs (host.describe, provider/settings/models describe,
+    // session list) hangs forever — e.g. a misconfigured custom provider whose
+    // settings namespace refuses to answer. Without a deadline the workbench
+    // would sit on the "Starting Harness" screen indefinitely. Race the whole
+    // boot against a timer; on expiry, surface a clear error instead.
+    const watchdog = new Promise<never>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(vscode.l10n.t(
+          'The bundled Harness runtime started but the Gateway baseline did not settle within {0}s. Check the output logs and your provider configuration.',
+          String(START_BASELINE_TIMEOUT_S),
+        )))
+      }, START_BASELINE_TIMEOUT_S * 1_000)
+      timer.unref?.()
+    })
+    try {
+      await Promise.race([this.runStartBaseline(), watchdog])
+      this.phase = 'connected'
+    } catch (cause) {
+      this.phase = 'error'
+      this.error = errorMessage(cause)
+      this.output.appendLine(`[gateway] ${this.error}`)
+    }
+    this.fireChange()
+  }
+
+  private async runStartBaseline(): Promise<void> {
     try {
       const url = await this.runtime.start()
       this.client = new NodeGatewayClient(url)
@@ -227,13 +254,15 @@ export class HarnessGatewayService implements vscode.Disposable {
           this.output.appendLine(vscode.l10n.t('[gateway] Failed to load recent sessions: {0}', errorMessage(cause)))
         }
       }
-      this.phase = 'connected'
     } catch (cause) {
+      // A failed baseline must still tear down the half-started runtime so a
+      // retry starts from a clean slate.
       this.phase = 'error'
       this.error = errorMessage(cause)
       this.output.appendLine(`[gateway] ${this.error}`)
+      await this.runtime.stop().catch(() => undefined)
+      throw cause
     }
-    this.fireChange()
   }
 
   async restart(): Promise<void> {
@@ -1905,6 +1934,8 @@ function subagentView(entry: SubagentListEntry): SubagentView {
 
 const EFFORT_INTENT_STATE_KEY = 'deepseekHarness.sessionEffortIntents'
 const SESSION_META_STATE_KEY = 'deepseekHarness.sessionMeta'
+/** How long the startup baseline may take before the watchdog fails the boot. */
+const START_BASELINE_TIMEOUT_S = 45
 const DEFAULT_REASONING_OPTIONS: readonly { readonly id: string }[] = [
   { id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' },
 ]
