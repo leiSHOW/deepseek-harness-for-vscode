@@ -1537,6 +1537,10 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .send-button:hover { background: var(--vscode-button-hoverBackground); transform: translateY(-1px); }
 .send-button:active { transform: translateY(0); }
 .composer-hint { margin: 4px 8px 6px; color: var(--vscode-descriptionForeground); text-align: center; font-size: 9px; }
+/* Transient rejection flash for a prompt the staged model cannot serve (e.g.
+   an image pasted under a text-only model). */
+.composer-hint.image-rejected { color: var(--vscode-errorForeground, #f14c4c); animation: composer-hint-flash 1.2s ease; }
+@keyframes composer-hint-flash { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 .muted-empty { padding: 12px; color: var(--vscode-descriptionForeground); text-align: center; font-size: 11px; }
 
 .settings-panel {

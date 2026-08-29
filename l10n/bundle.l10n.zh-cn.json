@@ -252,6 +252,7 @@
   "Supports image input": "支持图片输入",
   "+{count} more": "还有 {count} 个",
   "Show less": "收起",
+  "The selected model does not support image input.": "当前模型不支持图片输入。",
   "Changing DSH mode starts a new conversation when you send.": "更改 DSH 模式后，发送消息时将自动创建新对话。",
   "[gateway] Mode switch opened session {0} under preset \"{1}\"; the previous context rides with the next message.": "[gateway] 模式切换已在预设“{1}”下开启会话 {0}；之前的上下文将随下一条消息一并发送。",
   "[gateway] Session {0} has no isolated worktree; auto-isolation skipped because the workspace has uncommitted changes.": "[gateway] 会话 {0} 没有隔离工作树；因工作区存在未提交改动，自动隔离已跳过。",

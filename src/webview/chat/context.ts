@@ -71,6 +71,7 @@ export const elements: ChatElements = {
   send: byId<HTMLButtonElement>('send'),
   composerStatus: byId<HTMLElement>('composer-status'),
   activityStatus: byId<HTMLElement>('activity-status'),
+  composerHint: byId<HTMLElement>('composer-hint'),
   queuedPanel: byId<HTMLElement>('queued-panel'),
 }
 

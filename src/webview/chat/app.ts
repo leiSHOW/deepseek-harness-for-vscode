@@ -80,6 +80,13 @@ export function sendPrompt(): void {
   components.composerConfiguration.close()
   const text = elements.prompt.value.trim()
   if (!text && pastedImages.length === 0) return
+  // Backstop for image prompts: pasting is already refused when the model is
+  // known to reject images, but the selection can change (or resolve from
+  // Auto) after the paste, so a doomed send is still caught here.
+  if (pastedImages.length > 0 && components.composerConfiguration.supportsImageInput() === false) {
+    rejectImagePrompt()
+    return
+  }
   const configuration = components.composerConfiguration.selection()
   components.composerConfiguration.markSubmitted()
   // The configuration always travels with the prompt: the host stages it
@@ -121,6 +128,19 @@ export function sendPrompt(): void {
   clearPastedImages()
   resizePrompt()
   if (optimisticBubbles.length > 0) renderMessages(payload?.state.active)
+}
+
+/** Backstop rejection when an image prompt cannot be served by the model. */
+function rejectImagePrompt(): void {
+  const hint = elements.composerHint
+  hint.textContent = t('modelRejectsImages')
+  hint.classList.remove('image-rejected')
+  void hint.offsetWidth
+  hint.classList.add('image-rejected')
+  window.setTimeout(() => {
+    hint.textContent = t('composerHint')
+    hint.classList.remove('image-rejected')
+  }, 2600)
 }
 
 /**

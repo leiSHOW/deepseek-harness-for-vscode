@@ -77,6 +77,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   modelImageInput: 'Supports image input',
   modelListShowMore: '+{count} more',
   modelListShowLess: 'Show less',
+  modelRejectsImages: 'The selected model does not support image input.',
   contextUsageSummary: 'Context {used} / {limit} · {percent}% used',
   model: 'Model',
   reasoning: 'Reasoning',
