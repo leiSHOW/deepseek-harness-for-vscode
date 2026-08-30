@@ -209,6 +209,8 @@ function permissionMode(value: string | undefined): PermissionMode {
   return permissionPresetId(value)
 }
 
-function worktreeAutoMergeMode(value: string | undefined): WorktreeAutoMergeMode {
-  return value === 'onTurnEnd' ? 'onTurnEnd' : 'never'
+export function worktreeAutoMergeMode(value: string | undefined): WorktreeAutoMergeMode {
+  // Default to onTurnEnd: an isolated session's work lands back in the main
+  // checkout when its turn completes. Only an explicit 'never' opts out.
+  return value === 'never' ? 'never' : 'onTurnEnd'
 }

@@ -223,7 +223,7 @@
             "%config.worktreeAutoMerge.never%",
             "%config.worktreeAutoMerge.onTurnEnd%"
           ],
-          "default": "never",
+          "default": "onTurnEnd",
           "description": "%config.worktreeAutoMerge%"
         }
       }

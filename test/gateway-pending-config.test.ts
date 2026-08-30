@@ -18,6 +18,7 @@ vi.mock('vscode', () => ({
 import * as vscode from 'vscode'
 
 import { HarnessGatewayService } from '../src/gateway/harness-gateway-service.js'
+import { worktreeAutoMergeMode } from '../src/config/configuration.js'
 import type { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
 import type { ConfigurationService } from '../src/config/configuration.js'
 import type { ConnectionSettingsService } from '../src/services/connection-settings-service.js'
@@ -76,7 +77,11 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
   } as unknown as HarnessHostRuntime
 
   const configuration = {
-    get: () => ({ ...CONFIG, ...configOverride }),
+    get: () => ({
+      ...CONFIG,
+      ...configOverride,
+      worktreeAutoMerge: worktreeAutoMergeMode(configOverride.worktreeAutoMerge as string | undefined),
+    }),
     setAgentPresetIfKnown: vi.fn(),
     setProviderIfConfigured: vi.fn(),
     setModelIfKnown: vi.fn(),
@@ -500,12 +505,23 @@ describe('gateway worktree auto-merge', () => {
   })
 
   it('keeps the worktree untouched on turn/end when worktreeAutoMerge is never', async () => {
-    const { service, worktrees } = createService()
+    const { service, worktrees } = createService({ worktreeAutoMerge: 'never' })
 
     service.handleMux('rpc-auto-merge' as unknown as RpcId, turnEndFrame('s1'))
     await tick()
 
     expect(worktrees.mergeBack).not.toHaveBeenCalled()
+  })
+
+  it('defaults to onTurnEnd when the setting is not configured', async () => {
+    const { service, worktrees } = createService()
+    vi.mocked(worktrees.mergeBack!).mockResolvedValue({ ok: true, message: 'merged' })
+
+    service.handleMux('rpc-auto-merge' as unknown as RpcId, turnEndFrame('s1'))
+    await tick()
+    await tick()
+
+    expect(worktrees.mergeBack).toHaveBeenCalledTimes(1)
   })
 
   it('skips auto-merge for sessions without an isolated worktree', async () => {
