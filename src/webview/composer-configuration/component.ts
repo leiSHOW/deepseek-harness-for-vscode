@@ -1,5 +1,6 @@
 import type { PromptConfiguration } from '../../domain/prompt-configuration.js'
 import type { MessageArguments, WebviewMessageKey } from '../localization.js'
+import { applyIcon, icon } from '../icons.js'
 import { ComposerConfigurationStore } from './store.js'
 import type {
   ComposerConfigurationInput,
@@ -529,7 +530,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.effortTicks.replaceChildren(fragment)
   }
 
-  private optionButton(option: ConfigurationOption, icon: string, active: boolean, providerName?: string): HTMLButtonElement {
+  private optionButton(option: ConfigurationOption, iconValue: string, active: boolean, providerName?: string): HTMLButtonElement {
     const document = this.options.document
     const button = document.createElement('button')
     button.type = 'button'
@@ -554,10 +555,10 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     }
     const iconElement = document.createElement('span')
     iconElement.className = 'configuration-option-icon'
-    iconElement.textContent = icon
+    applyIcon(iconElement, iconValue)
     const check = document.createElement('span')
     check.className = 'configuration-option-check'
-    check.textContent = active ? '✓' : ''
+    applyIcon(check, active ? icon('check', 13) : '')
     button.append(iconElement, copy, check)
     return button
   }
@@ -578,7 +579,7 @@ function modelIcon(id: string): string {
 function presetIcon(id: string): string {
   if (id === 'code') return '</>'
   if (id === 'minimal') return '—'
-  if (id === 'cordis') return '✦'
+  if (id === 'cordis') return icon('sparkle', 11)
   return '◎'
 }
 

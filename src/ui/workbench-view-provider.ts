@@ -5,6 +5,7 @@ import type { ConnectionSettingsInput, ConnectionTestResult } from '../domain/co
 import { AGENT_PRESET_OPTIONS, MODEL_OPTIONS, REASONING_OPTIONS } from '../domain/options.js'
 import { promptConfiguration } from '../domain/prompt-configuration.js'
 import { referenceFromKey as fileReferenceFromKey } from '../webview/file-reference.js'
+import { icon } from '../webview/icons.js'
 import type { EditorSelectionService } from '../editor/editor-selection-service.js'
 import type { OpenWorkspaceFileRequest } from '../editor/types.js'
 import type { WorkspaceFileService } from '../editor/workspace-file-service.js'
@@ -582,20 +583,20 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
 <body>
   <header class="shell-header">
     <div class="brand-row">
-      <button id="history-toggle" class="icon-button" title="${text('history')}" aria-label="${text('history')}">☰</button>
+      <button id="history-toggle" class="icon-button" title="${text('history')}" aria-label="${text('history')}">${icon('menu')}</button>
       <div class="brand"><img class="brand-logo" src="${logo}" alt=""><strong>Harness</strong><span id="connection" class="connection"></span></div>
       <div class="header-actions">
-        <button id="new-session" class="icon-button" title="${text('newConversation')}" aria-label="${text('newConversation')}">＋</button>
-        <button id="plugins-toggle" class="icon-button" title="${text('plugins')}" aria-label="${text('plugins')}" aria-expanded="false" aria-controls="plugin-panel">⊞</button>
-        <button id="open-settings" class="icon-button" title="${text('extensionSettings')}" aria-label="${text('extensionSettings')}">⚙</button>
+        <button id="new-session" class="icon-button" title="${text('newConversation')}" aria-label="${text('newConversation')}">${icon('plus')}</button>
+        <button id="plugins-toggle" class="icon-button" title="${text('plugins')}" aria-label="${text('plugins')}" aria-expanded="false" aria-controls="plugin-panel">${icon('plugins')}</button>
+        <button id="open-settings" class="icon-button" title="${text('extensionSettings')}" aria-label="${text('extensionSettings')}">${icon('settings')}</button>
       </div>
     </div>
     <div class="session-heading">
-      <button id="back-parent" class="icon-button compact hidden" title="${text('backToParentAgent')}" aria-label="${text('backToParentAgent')}">←</button>
+      <button id="back-parent" class="icon-button compact hidden" title="${text('backToParentAgent')}" aria-label="${text('backToParentAgent')}">${icon('back')}</button>
       <button id="session-title" class="title-button" title="${text('renameConversation')}">${text('newConversation')}</button>
-      <button id="fork" class="icon-button compact" title="${text('forkConversation')}" aria-label="${text('forkConversation')}">⑂</button>
-      <button id="import-session" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">⤓</button>
-      <button id="export-session" class="icon-button compact" title="${text('exportSession')}" aria-label="${text('exportSession')}">↥</button>
+      <button id="fork" class="icon-button compact" title="${text('forkConversation')}" aria-label="${text('forkConversation')}">${icon('fork')}</button>
+      <button id="import-session" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">${icon('import')}</button>
+      <button id="export-session" class="icon-button compact" title="${text('exportSession')}" aria-label="${text('exportSession')}">${icon('export')}</button>
       <span id="session-stats" class="session-stats" title="${text('sessionStats')}"></span>
       <span id="session-usage" class="session-usage hidden" title="${text('sessionTokenUsage')}"></span>
     </div>
@@ -611,8 +612,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       <strong>${text('history')}</strong>
       <div class="panel-heading-actions">
         <button id="history-archived" class="history-archive-toggle" type="button" aria-pressed="false" title="${text('archivedConversations')}">${text('archivedConversations')}</button>
-        <button id="history-import" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">⤓</button>
-        <button id="history-close" class="icon-button">×</button>
+        <button id="history-import" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">${icon('import')}</button>
+        <button id="history-close" class="icon-button">${icon('close')}</button>
       </div>
     </div>
     <input id="history-search" class="search-input" type="search" placeholder="${text('searchConversations')}">
@@ -623,8 +624,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     <header class="plugin-panel-heading">
       <div><strong>${text('pluginCenter')}</strong><small>web profile</small></div>
       <div class="plugin-panel-actions">
-        <button id="plugin-refresh" class="icon-button compact" title="${text('refreshPlugins')}" aria-label="${text('refreshPlugins')}">↻</button>
-        <button id="plugin-close" class="icon-button compact" title="${text('closePluginCenter')}" aria-label="${text('closePluginCenter')}">×</button>
+        <button id="plugin-refresh" class="icon-button compact" title="${text('refreshPlugins')}" aria-label="${text('refreshPlugins')}">${icon('refresh')}</button>
+        <button id="plugin-close" class="icon-button compact" title="${text('closePluginCenter')}" aria-label="${text('closePluginCenter')}">${icon('close')}</button>
       </div>
     </header>
     <nav class="plugin-tabs" aria-label="${text('pluginCenter')}">
@@ -636,7 +637,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         <input id="plugin-search" class="search-input" type="search" placeholder="${text('searchPlugins')}" aria-label="${text('searchPlugins')}">
         <select id="plugin-category" class="plugin-category" aria-label="${text('allCategories')}"></select>
       </div>
-      <p class="plugin-security-notice">⚠ ${text('pluginSecurityNotice')}</p>
+      <p class="plugin-security-notice">${icon('warning', 12)} ${text('pluginSecurityNotice')}</p>
       <div id="plugin-marketplace-list" class="plugin-list"></div>
       <button id="plugin-load-more" class="secondary-button hidden" type="button">${text('loadMorePlugins')}</button>
       <footer class="plugin-source-footer">
@@ -766,8 +767,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         <textarea id="prompt" rows="1" placeholder="${text('promptPlaceholder')}" aria-label="${text('message')}"></textarea>
         <div class="composer-bar">
           <div class="composer-tools">
-            <button id="attach-selection" class="text-button hidden" title="${text('attachSelection')}">⬒ ${text('selection')}</button>
-            <button id="timeline-toggle" class="text-button hidden" title="${text('timeline')}">◷ ${text('timeline')}</button>
+            <button id="attach-selection" class="text-button hidden" title="${text('attachSelection')}">${icon('attach', 12)} ${text('selection')}</button>
+            <button id="timeline-toggle" class="text-button hidden" title="${text('timeline')}">${icon('timeline', 12)} ${text('timeline')}</button>
             <button id="details-toggle" class="text-button" title="${text('contextDescription')}">${text('context')}</button>
             <div id="permission" class="permission-picker hidden">
               <button id="permission-toggle" class="permission-toggle" type="button" title="${text('permissionDescription')}" aria-label="${text('permissionDescription')}" aria-haspopup="listbox" aria-expanded="false">
@@ -780,7 +781,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
                 <div id="permission-options" class="permission-options" role="presentation"></div>
               </div>
               <div id="permission-confirm" class="permission-confirm hidden" role="alertdialog" aria-labelledby="permission-confirm-title" aria-describedby="permission-confirm-warning">
-                <div id="permission-confirm-title" class="permission-confirm-title">⚠ ${text('permissionFullAccessTitle')}</div>
+                <div id="permission-confirm-title" class="permission-confirm-title">${icon('warning', 14)} ${text('permissionFullAccessTitle')}</div>
                 <p id="permission-confirm-warning" class="permission-confirm-warning">${text('permissionFullAccessWarning')}</p>
                 <div class="permission-confirm-actions">
                   <button id="permission-confirm-cancel" class="permission-confirm-cancel" type="button">${text('cancel')}</button>
@@ -813,7 +814,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     <div class="settings-card">
       <header class="settings-header">
         <strong>${text('connectionSettings')}</strong>
-        <button id="settings-close" class="icon-button compact" type="button" title="${text('closeSettings')}" aria-label="${text('closeSettings')}">×</button>
+        <button id="settings-close" class="icon-button compact" type="button" title="${text('closeSettings')}" aria-label="${text('closeSettings')}">${icon('close')}</button>
       </header>
       <div class="settings-body">
         <div class="settings-field">

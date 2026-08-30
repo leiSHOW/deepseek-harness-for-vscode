@@ -41,7 +41,14 @@ metadata:
 2. 字号用相对单位：正文用 calc(var(--vscode-font-size) + Npx)，卡片/辅助文字
    用固定小字号（11px 级），标题用 em。不要整页写死 px 字号，否则 Windows 上
    改了 VS Code 字体设置会忽大忽小。
-3. 每个 byId 的 DOM id 必须同时存在于 HTML 模板。webview 在模块加载时就用
+3. **图标一律用内联 SVG**（src/webview/icons.ts 的 icon()/applyIcon()），禁止在
+   UI 里放任何 emoji 或 emoji 呈现字符（⚡⚙⚠⚑⚐★✦✎☑❯ 等：Windows 用
+   Segoe UI Emoji 会把它们渲染成彩色 emoji，macOS 却是单色文本——典型跨平台
+   不一致）。SVG 用 currentColor 继承主题色；HTML 模板里用 ${icon('name')}，
+   动态节点用 applyIcon(el, icon('name'))。纯文本安全符号（✓ ✕ × ← → 箭头、
+   几何形状 ◆◇△ 等）可保留。:root 已加 font-variant-emoji:text 兜底，消息正文
+   覆盖回 normal 以保留真实 emoji 内容。新增图标先看 icons.ts 有没有，没有再补。
+4. 每个 byId 的 DOM id 必须同时存在于 HTML 模板。webview 在模块加载时就用
    byId() 取元素，缺一个就抛 Missing webview element #xxx，整个 webview 白屏
    （曾因 composer-hint 只加了 class 没加 id 导致工作台一直“启动中”）。新增
    元素时：模板 + context.ts 的 elements 一起改，然后重新构建并核对。

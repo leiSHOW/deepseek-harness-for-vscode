@@ -1,4 +1,5 @@
 import type { ActiveSessionView, QueuedPromptView } from '../../domain/workbench-state.js'
+import { applyIcon, icon } from '../icons.js'
 import { composerStatusText } from '../composer-status.js'
 import {
   components,
@@ -61,11 +62,13 @@ function queuedItemRow(item: QueuedPromptView): HTMLElement {
   const text = item.text || (item.hasMedia ? '(media)' : '')
   row.append(node('span', 'queued-text', text))
   const actions = node('span', 'queued-actions')
-  const steer = node('button', 'queued-action', '⚡') as HTMLButtonElement
+  const steer = node('button', 'queued-action') as HTMLButtonElement
+  applyIcon(steer, icon('sendNow', 13))
   steer.title = t('sendNow')
   steer.setAttribute('aria-label', t('sendNow'))
   steer.addEventListener('click', () => post('steerQueued', { itemId: item.id }))
-  const edit = node('button', 'queued-action', '✎') as HTMLButtonElement
+  const edit = node('button', 'queued-action') as HTMLButtonElement
+  applyIcon(edit, icon('edit', 13))
   edit.title = t('editQueued')
   edit.setAttribute('aria-label', t('editQueued'))
   edit.addEventListener('click', () => {
