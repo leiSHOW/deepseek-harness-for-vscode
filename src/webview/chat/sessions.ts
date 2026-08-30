@@ -1,5 +1,6 @@
 import type { ActiveSessionView, PermissionView } from '../../domain/workbench-state.js'
 import { FULL_ACCESS_PERMISSION_ID, PERMISSION_PRESET_IDS } from '../../domain/permissions.js'
+import { applyIcon, icon } from '../icons.js'
 import { composerConfigurationInput } from '../composer-configuration/adapter.js'
 import { permissionSelectOptions, type PermissionSelectOption } from '../permission/adapter.js'
 import { clearPastedImages } from './images.js'
@@ -37,7 +38,7 @@ export function renderSessions(): void {
     if (session.id === payload.state.active?.id) button.classList.add('active')
     const top = node('span', 'session-row-top')
     top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
-    if (session.meta?.pinned === true) top.append(node('span', 'session-mark', '⚑'))
+    if (session.meta?.pinned === true) { const mark = node('span', 'session-mark'); applyIcon(mark, icon('pin', 10)); top.append(mark) }
     const meta = node('span', 'session-meta', formatRelativeTime(session.updatedAt))
     if (session.agentPreset) meta.append(` · ${session.agentPreset}`)
     button.append(top, meta)
@@ -59,7 +60,7 @@ export function renderSessions(): void {
     wrap.append(button)
     const actions = node('div', 'session-row-actions')
     const pinned = session.meta?.pinned === true
-    const pin = metaAction(pinned ? t('unpinSession') : t('pinSession'), pinned ? '⚑' : '⚐', () => post('toggleSessionPin', { sessionId: session.id }))
+    const pin = metaAction(pinned ? t('unpinSession') : t('pinSession'), pinned ? icon('pin', 12) : icon('unpin', 12), () => post('toggleSessionPin', { sessionId: session.id }))
     if (pinned) pin.classList.add('active')
     actions.append(pin)
     actions.append(metaAction(t('editSessionTags'), '#', () => post('editSessionTags', { sessionId: session.id })))
@@ -68,7 +69,7 @@ export function renderSessions(): void {
       action.type = 'button'
       action.title = showingArchived ? t('restoreSession') : t('archiveSession')
       action.setAttribute('aria-label', action.title)
-      action.textContent = showingArchived ? '↩' : '▢'
+      applyIcon(action, showingArchived ? icon('restore', 12) : icon('archive', 12))
       action.addEventListener('click', (event) => {
         event.stopPropagation()
         if (showingArchived) {
@@ -89,7 +90,7 @@ export function renderSessions(): void {
       action.type = 'button'
       action.title = t('worktreeActions')
       action.setAttribute('aria-label', action.title)
-      action.textContent = '⑂'
+      applyIcon(action, icon('fork', 12))
       action.addEventListener('click', (event) => {
         event.stopPropagation()
         post('worktreeAction', { sessionId: session.id })
@@ -186,7 +187,7 @@ function renderPermissionOptions(permissions: PermissionView): void {
     button.append(label)
     const check = document.createElement('span')
     check.className = 'permission-option-check'
-    check.textContent = item.id === permissions.currentValue ? '✓' : ''
+    applyIcon(check, item.id === permissions.currentValue ? icon('check', 12) : '')
     button.append(check)
     if (item.disabled) {
       button.disabled = true
@@ -303,7 +304,7 @@ function metaAction(label: string, glyph: string, onClick: () => void): HTMLButt
   action.type = 'button'
   action.title = label
   action.setAttribute('aria-label', label)
-  action.textContent = glyph
+  applyIcon(action, glyph)
   action.addEventListener('click', (event) => {
     event.stopPropagation()
     onClick()

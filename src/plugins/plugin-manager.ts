@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
 import type { BundledRuntimeResolver } from '../runtime/bundled-runtime.js'
@@ -84,9 +84,38 @@ export class DshPluginManager {
       if (installedNames.has(plugin.installedName) || (plugin.npmPackage !== undefined && installedNames.has(plugin.npmPackage))) continue
       // The managed routing suite already provides the Super Injector.
       if (plugin.installedName === ROUTING_SUITE_MANIFEST.injector.name && installedNames.has(ROUTING_SUITE_MANIFEST.installedName)) continue
-      await this.install(plugin.installSpec)
+      if (plugin.vendoredTarball !== undefined) {
+        await this.installVendored(plugin.vendoredTarball)
+      } else {
+        await this.install(plugin.installSpec)
+      }
     }
     await this.markDefaultPluginsSeeded()
+  }
+
+  /** Marker-only check (no process spawn): whether default seeding is still pending. */
+  async hasPendingDefaultPluginsSeed(): Promise<boolean> {
+    return await this.defaultPluginsSeedVersion() < DEFAULT_PLUGINS_SEED_VERSION
+  }
+
+  /**
+   * Installs a plugin bundled inside the VSIX from a local tarball, so a
+   * first run never waits on GitHub/npm downloads. pnpm resolves relative
+   * tarball arguments against the process working directory, so the pnpm
+   * invocation is spawned with cwd inside the profile and handed a
+   * space-free "./vendor/..." spec (the extension's spec guard rejects
+   * whitespace, and the harness home on macOS contains spaces). pnpm records
+   * the resolved absolute file path, which lives inside the profile and
+   * therefore survives extension updates.
+   */
+  private async installVendored(vendoredTarball: string): Promise<void> {
+    const source = path.join(this.context.extensionUri.fsPath, vendoredTarball)
+    const profileDir = path.join(this.harnessHome(), 'profiles', PROFILE)
+    const vendorDir = path.join(profileDir, 'vendor')
+    await mkdir(vendorDir, { recursive: true })
+    const filename = path.basename(source)
+    await copyFile(source, path.join(vendorDir, filename))
+    await this.run(['add', './vendor/' + filename], profileDir)
   }
 
   async install(value: string): Promise<readonly InstalledDshPlugin[]> {
@@ -117,14 +146,14 @@ export class DshPluginManager {
     return await this.listInstalled()
   }
 
-  private async run(pnpmArguments: readonly string[]): Promise<void> {
+  private async run(pnpmArguments: readonly string[], cwd = workspaceDirectory()): Promise<void> {
     const launch = await this.resolver.resolve()
     const args = [...launch.args, 'plugin', '--profile', PROFILE, ...pnpmArguments]
     const env = { ...launch.environment, DSH_HOME: this.harnessHome() }
     this.output.appendLine(`[plugin] dsh plugin --profile ${PROFILE} ${pnpmArguments.map(diagnosticArgument).join(' ')}`)
     await new Promise<void>((resolve, reject) => {
       const child = spawn(launch.command, args, {
-        cwd: workspaceDirectory(),
+        cwd,
         env,
         windowsHide: true,
       })

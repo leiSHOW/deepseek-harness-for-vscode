@@ -17,6 +17,7 @@ import {
   stickToBottomOnLoad,
   t,
 } from './context.js'
+import { applyIcon, icon, type IconName } from '../icons.js'
 import { markdownActions } from './markdown-actions.js'
 import { appendTodoRows, todoListSignature, todoProgress, type TodoEntry } from './todo-list.js'
 import type { OptimisticBubble } from './types.js'
@@ -296,10 +297,12 @@ function renderTool(item: ChatItem): HTMLElement {
   // One merged row per tool: a per-tool glyph on the call card; standalone
   // result cards (call missing from this history page) keep a status mark.
   const isResultOnly = String(item.id || '').endsWith('-result')
-  const icon = isResultOnly
-    ? (item.status === 'error' ? '✕' : '✓')
-    : toolIcon(item.title)
-  summary.append(node('span', 'tool-status', icon), node('span', 'tool-title', toolDisplayName(item.title || t('tool'))))
+  const statusIcon = isResultOnly
+    ? (item.status === 'error' ? icon('cancel', 12) : icon('check', 12))
+    : icon(toolIcon(item.title), 12)
+  const status = node('span', 'tool-status')
+  applyIcon(status, statusIcon)
+  summary.append(status, node('span', 'tool-title', toolDisplayName(item.title || t('tool'))))
   if (item.detail && item.detail.trim() !== '') {
     summary.append(node('span', 'tool-preview', toolPreviewText(item.detail)))
   }
@@ -342,7 +345,7 @@ function isTodoTool(name: string | undefined): boolean {
 
 /**
  * Renders a `todo_write` call as a live checklist card instead of a generic
- * tool card: an expanded ○/●/☑ list with a `x/y` progress readout. The card is
+ * tool card: an expanded ○/●/✓ list with a `x/y` progress readout. The card is
  * bound to the session's projected todos, so every later `todo/write` event
  * refreshes it in place (see {@link refreshTodoCards}).
  */
@@ -426,50 +429,50 @@ function toolDisplayName(name: string | undefined): string {
   return (name ?? '').charAt(0).toUpperCase() + (name ?? '').slice(1)
 }
 
-const TOOL_ICONS = new Map<string, string>([
+const TOOL_ICONS = new Map<string, IconName>([
   // Shell / command execution.
-  ['bash', '❯'], ['shell', '❯'], ['terminal', '❯'], ['sh', '❯'], ['zsh', '❯'],
-  ['powershell', '❯'], ['exec', '❯'], ['exec_command', '❯'], ['run_command', '❯'],
-  ['run', '❯'], ['command', '❯'],
+  ['bash', 'terminal'], ['shell', 'terminal'], ['terminal', 'terminal'], ['sh', 'terminal'], ['zsh', 'terminal'],
+  ['powershell', 'terminal'], ['exec', 'terminal'], ['exec_command', 'terminal'], ['run_command', 'terminal'],
+  ['run', 'terminal'], ['command', 'terminal'],
   // File editing.
-  ['edit', '✎'], ['str_replace_editor', '✎'], ['str_replace', '✎'], ['apply_patch', '✎'],
-  ['edit_file', '✎'], ['replace', '✎'], ['rewrite', '✎'], ['write', '✎'], ['create', '✎'],
-  ['create_file', '✎'], ['append', '✎'], ['append_file', '✎'],
+  ['edit', 'edit'], ['str_replace_editor', 'edit'], ['str_replace', 'edit'], ['apply_patch', 'edit'],
+  ['edit_file', 'edit'], ['replace', 'edit'], ['rewrite', 'edit'], ['write', 'edit'], ['create', 'edit'],
+  ['create_file', 'edit'], ['append', 'edit'], ['append_file', 'edit'],
   // File reading / browsing.
-  ['read', '≡'], ['read_file', '≡'], ['view', '≡'], ['view_file', '≡'], ['cat', '≡'],
-  ['ls', '≡'], ['list', '≡'], ['inspect', '≡'], ['stat', '≡'],
+  ['read', 'read'], ['read_file', 'read'], ['view', 'read'], ['view_file', 'read'], ['cat', 'read'],
+  ['ls', 'read'], ['list', 'read'], ['inspect', 'read'], ['stat', 'read'],
   // Search.
-  ['glob', '⌕'], ['grep', '⌕'], ['search', '⌕'], ['find', '⌕'], ['rg', '⌕'],
-  ['ripgrep', '⌕'], ['find_files', '⌕'], ['search_files', '⌕'],
+  ['glob', 'search'], ['grep', 'search'], ['search', 'search'], ['find', 'search'], ['rg', 'search'],
+  ['ripgrep', 'search'], ['find_files', 'search'], ['search_files', 'search'],
   // Web / network.
-  ['web_search', '≋'], ['web', '≋'], ['web_fetch', '≋'], ['fetch', '≋'], ['http', '≋'],
-  ['url', '≋'], ['browser', '≋'], ['request', '≋'],
+  ['web_search', 'web'], ['web', 'web'], ['web_fetch', 'web'], ['fetch', 'web'], ['http', 'web'],
+  ['url', 'web'], ['browser', 'web'], ['request', 'web'],
   // Workflow orchestration.
-  ['workflow', '⇄'], ['pipeline', '⇄'], ['orchestrator', '⇄'], ['parallel', '⇄'],
+  ['workflow', 'workflow'], ['pipeline', 'workflow'], ['orchestrator', 'workflow'], ['parallel', 'workflow'],
   // Sub-agents.
-  ['subagent', '◎'], ['subagent_fork', '◎'], ['agent', '◎'], ['spawn', '◎'], ['ralph', '◎'],
+  ['subagent', 'subagent'], ['subagent_fork', 'subagent'], ['agent', 'subagent'], ['spawn', 'subagent'], ['ralph', 'subagent'],
   // Goals.
-  ['create_goal', '⚑'], ['update_goal', '⚑'], ['get_goal', '⚑'], ['goal', '⚑'],
+  ['create_goal', 'pin'], ['update_goal', 'pin'], ['get_goal', 'pin'], ['goal', 'pin'],
   // Questions / confirmations.
-  ['ask_user_question', '?'], ['ask', '?'], ['ask_user', '?'], ['confirm', '?'], ['prompt', '?'],
+  ['ask_user_question', 'question'], ['ask', 'question'], ['ask_user', 'question'], ['confirm', 'question'], ['prompt', 'question'],
   // Task lists.
-  ['todo_write', '☑'], ['todo', '☑'], ['task', '☑'],
+  ['todo_write', 'checkSquare'], ['todo', 'checkSquare'], ['task', 'checkSquare'],
   // Interrupt / cancel.
-  ['interrupt_agent', '✕'], ['cancel', '✕'], ['kill', '✕'], ['stop', '✕'], ['job_kill', '✕'],
+  ['interrupt_agent', 'cancel'], ['cancel', 'cancel'], ['kill', 'cancel'], ['stop', 'cancel'], ['job_kill', 'cancel'],
   // Job control.
-  ['job_list', '▤'], ['job_output', '▤'], ['job', '▤'],
+  ['job_list', 'tool'], ['job_output', 'tool'], ['job', 'tool'],
   // Vision / images.
-  ['read_image', '▣'], ['vision_describe', '▣'], ['vision_ocr', '▣'], ['screenshot', '▣'],
-  ['image', '▣'], ['ocr', '▣'],
+  ['read_image', 'image'], ['vision_describe', 'image'], ['vision_ocr', 'image'], ['screenshot', 'image'],
+  ['image', 'image'], ['ocr', 'image'],
   // Skills.
-  ['skill', '✦'], ['skills', '✦'],
+  ['skill', 'sparkle'], ['skills', 'sparkle'],
 ])
 
-/** Best-effort glyph per tool name; dev_* helpers and unknown tools get a gear. */
-function toolIcon(name: string | undefined): string {
+/** Best-effort SVG icon per tool name; dev_* helpers and unknown tools get a generic tool. */
+function toolIcon(name: string | undefined): IconName {
   const normalized = String(name || '').trim().toLowerCase()
-  if (normalized.startsWith('dev_')) return '⚙'
-  return TOOL_ICONS.get(normalized) ?? '⚙'
+  if (normalized.startsWith('dev_')) return 'tool'
+  return TOOL_ICONS.get(normalized) ?? 'tool'
 }
 
 function toolPreviewText(detail: string): string {

@@ -1,5 +1,6 @@
 import type { PromptConfiguration } from '../../domain/prompt-configuration.js'
 import type { MessageArguments, WebviewMessageKey } from '../localization.js'
+import { applyIcon, icon } from '../icons.js'
 import { ComposerConfigurationStore } from './store.js'
 import type {
   ComposerConfigurationInput,
@@ -171,7 +172,14 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       this.changeReasoning(Number(this.effortSlider.value))
     })
     this.effortSlider.addEventListener('pointerdown', (event) => {
-      if (event.button === 0) this.beginEffortDrag()
+      if (event.button === 0) {
+        // Suppress the native range drag entirely: on Windows Edge it fires an
+        // `input` event storm while dragging, each one re-rendering the whole
+        // panel and fighting the smooth overlay knob. The custom drag below
+        // owns both the visual and the committed detent.
+        event.preventDefault()
+        this.beginEffortDrag(event)
+      }
     })
     this.effortSlider.addEventListener('wheel', (event) => {
       event.preventDefault()
@@ -214,7 +222,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
    * on release the control settles onto the committed detent with the
    * normal transition.
    */
-  private beginEffortDrag(): void {
+  private beginEffortDrag(start: PointerEvent): void {
     if (this.effortSlider.disabled || this.effortDragging) return
     const row = this.effortSlider.parentElement
     if (row === null) return
@@ -229,6 +237,12 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left - 12) / (rect.width - 24)))
       this.effortControl.style.setProperty('--effort-position', String(fraction))
       this.effortControl.style.setProperty('--effort-progress', `${fraction * 100}%`)
+      // Commit the nearest detent to the store and refresh only the label /
+      // tone / tick highlights — no full panel re-render per pointermove, so
+      // the knob stays glued to the cursor even on Windows Edge where the
+      // native input storm used to re-render the whole panel.
+      const maxIndex = Number(this.effortSlider.max)
+      this.syncEffortDrag(Math.round(fraction * maxIndex))
     }
     const end = () => {
       this.effortDragging = false
@@ -236,13 +250,38 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', end)
       document.removeEventListener('pointercancel', end)
-      // Settle onto the committed detent with the transition re-enabled.
+      // Commit the staged tier once, settling onto the detent with the
+      // transition re-enabled.
       const snapshot = this.store.snapshot()
-      if (snapshot !== undefined) this.renderEffort(snapshot)
+      if (snapshot !== undefined) {
+        this.options.onChange()
+        this.renderEffort(snapshot)
+      }
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', end)
     document.addEventListener('pointercancel', end)
+    // Position at the press point so a plain click still jumps to that tier.
+    move(start)
+  }
+
+  /**
+   * Light drag-follow: stage the nearest tier and update the effort label /
+   * tone / tick highlights without rebuilding the panel or the tick row.
+   */
+  private syncEffortDrag(index: number): void {
+    const snapshot = this.store.selectReasoning(index)
+    if (snapshot === undefined) return
+    this.effortControl.dataset.effort = snapshot.effortTone
+    this.effortValue.textContent = snapshot.effort.label
+    this.effortSlider.value = String(snapshot.effortIndex)
+    for (let i = 0; i < this.effortTicks.children.length; i += 1) {
+      const tick = this.effortTicks.children[i]
+      if (!(tick instanceof HTMLButtonElement)) continue
+      const active = i <= snapshot.effortIndex
+      tick.classList.toggle('active', active)
+      tick.setAttribute('aria-current', String(i === snapshot.effortIndex))
+    }
   }
 
   /** Applies a user-driven reasoning change and pops the tier flourish. */
@@ -491,7 +530,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.effortTicks.replaceChildren(fragment)
   }
 
-  private optionButton(option: ConfigurationOption, icon: string, active: boolean, providerName?: string): HTMLButtonElement {
+  private optionButton(option: ConfigurationOption, iconValue: string, active: boolean, providerName?: string): HTMLButtonElement {
     const document = this.options.document
     const button = document.createElement('button')
     button.type = 'button'
@@ -516,10 +555,10 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     }
     const iconElement = document.createElement('span')
     iconElement.className = 'configuration-option-icon'
-    iconElement.textContent = icon
+    applyIcon(iconElement, iconValue)
     const check = document.createElement('span')
     check.className = 'configuration-option-check'
-    check.textContent = active ? '✓' : ''
+    applyIcon(check, active ? icon('check', 13) : '')
     button.append(iconElement, copy, check)
     return button
   }
@@ -540,7 +579,7 @@ function modelIcon(id: string): string {
 function presetIcon(id: string): string {
   if (id === 'code') return '</>'
   if (id === 'minimal') return '—'
-  if (id === 'cordis') return '✦'
+  if (id === 'cordis') return icon('sparkle', 11)
   return '◎'
 }
 

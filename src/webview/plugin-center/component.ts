@@ -1,3 +1,4 @@
+import { applyIcon, icon } from '../icons.js'
 import type { DshPluginCatalogItem, DshPluginCenterSnapshot, InstalledDshPlugin } from '../../plugins/types.js'
 import type { MessageArguments, WebviewMessageKey } from '../localization.js'
 
@@ -159,7 +160,10 @@ export function createPluginCenterComponent(options: {
     const heading = element('div', 'plugin-card-heading')
     const title = element('div', 'plugin-card-title')
     title.append(element('strong', '', plugin.name), element('span', 'plugin-owner', plugin.owner))
-    heading.append(title, element('span', 'plugin-stars', `★ ${plugin.stars}`))
+    const stars = element('span', 'plugin-stars')
+    applyIcon(stars, icon('star', 10))
+    stars.append(' ' + plugin.stars)
+    heading.append(title, stars)
     const description = element('p', 'plugin-description', plugin.description)
     const meta = element('div', 'plugin-card-meta')
     meta.append(element('span', 'plugin-category-badge', categoryLabel(plugin.category)))

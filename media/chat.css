@@ -2,10 +2,28 @@
   color-scheme: light dark;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
+  /* The workbench chrome must never render colorful emoji (Windows Segoe UI
+     Emoji vs macOS monochrome is a cross-platform inconsistency). Icons are
+     inline SVGs (src/webview/icons.ts); this forces any stray emoji-eligible
+     character to its monochrome text presentation as a safety net. Message
+     content is overridden back to the platform default so real emoji in
+     replies still render. */
+  font-variant-emoji: text;
+}
+.message-body,
+.markdown-body,
+.streaming-content {
+  font-variant-emoji: normal;
 }
 
 * {
   box-sizing: border-box;
+}
+/* Inline SVG icons align with the surrounding text and inherit currentColor. */
+svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
 }
 html,
 body {
@@ -4176,7 +4194,7 @@ body.vscode-high-contrast .empty-logo {
   background: color-mix(in srgb, #3178c6 18%, transparent);
 }
 .md-file-link[data-file-ext="tsx"]::before {
-  content: "⚛";
+  content: "TSX";
   color: #3178c6;
   background: color-mix(in srgb, #3178c6 18%, transparent);
 }
@@ -4186,7 +4204,7 @@ body.vscode-high-contrast .empty-logo {
   background: color-mix(in srgb, #f7df1e 30%, transparent);
 }
 .md-file-link[data-file-ext="jsx"]::before {
-  content: "⚛";
+  content: "JSX";
   color: #b8860b;
   background: color-mix(in srgb, #f7df1e 30%, transparent);
 }
@@ -4227,7 +4245,7 @@ body.vscode-high-contrast .empty-logo {
   background: color-mix(in srgb, #cb171e 14%, transparent);
 }
 .md-file-link[data-file-ext="toml"]::before {
-  content: "⚙";
+  content: "T";
   color: #9c4221;
   background: color-mix(in srgb, #9c4221 16%, transparent);
 }

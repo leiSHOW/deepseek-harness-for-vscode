@@ -8,6 +8,8 @@ export interface DefaultBuiltinPlugin {
   readonly categoryLabel: { readonly en: string; readonly zh: string }
   readonly repositoryUrl: string
   readonly installSpec: string
+  /** VSIX-relative path to a bundled plugin tarball; first-run seeding installs from it instead of downloading. */
+  readonly vendoredTarball?: string
   readonly installedName: string
   readonly npmPackage?: string
   readonly updatedAt: string
@@ -27,6 +29,7 @@ export const DEFAULT_BUILTIN_PLUGINS: readonly DefaultBuiltinPlugin[] = [
     categoryLabel: { en: 'Routing & workflow', zh: '路由与工作流' },
     repositoryUrl: 'https://github.com/yjh051108/dsh-super-injector',
     installSpec: 'https://github.com/yjh051108/dsh-super-injector/releases/download/v0.3.3/dsh-external-dsh-super-injector-0.3.3.tgz',
+    vendoredTarball: 'vendor/plugins/dsh-external-dsh-super-injector-0.3.3.tgz',
     installedName: '@dsh-external/dsh-super-injector',
     updatedAt: '2026-08-13T00:00:00Z',
     compatibility: 'agent',
@@ -43,6 +46,7 @@ export const DEFAULT_BUILTIN_PLUGINS: readonly DefaultBuiltinPlugin[] = [
     categoryLabel: { en: 'Import', zh: '导入' },
     repositoryUrl: 'https://github.com/Nwflower/dsh-chat-import',
     installSpec: 'dsh-chat-import',
+    vendoredTarball: 'vendor/plugins/dsh-chat-import-0.6.2.tgz',
     installedName: 'dsh-chat-import',
     npmPackage: 'dsh-chat-import',
     updatedAt: '2026-08-18T00:00:00Z',

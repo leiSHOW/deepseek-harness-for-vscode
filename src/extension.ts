@@ -42,11 +42,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState, worktrees)
   const connectionTest = new ConnectionTestService(() => gateway.providerControlClient())
   const pluginManager = new DshPluginManager(context, resolver, output)
-  try {
-    await pluginManager.ensureDefaultPlugins()
-  } catch (cause) {
-    output.appendLine(`[plugin] Failed to ensure default plugins: ${cause instanceof Error ? cause.message : String(cause)}`)
-  }
   const pluginCatalog = new DshPluginCatalogService()
   const pluginCenter = new DshPluginCenterController(pluginManager, pluginCatalog, gateway)
   const sessionImport = new SessionImportService(pluginManager, gateway)
@@ -135,6 +130,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('deepseekHarness.showLogs', () => output.show(true)),
     vscode.commands.registerCommand('deepseekHarness.importSession', () => sessionImport.runInteractive()),
   )
+
+  // First-run default-plugin seeding must never block activation: installing
+  // the two built-ins (Super Injector + Chat Import) runs pnpm and downloads
+  // from GitHub/npm, which can take a minute or two on a fresh machine.
+  // Blocking left the workbench blank behind VS Code's activation progress
+  // bar. Seed in the background after the first successful connect and
+  // restart the runtime once through mutateRuntime so the profile change
+  // takes effect cleanly.
+  void seedDefaultPluginsAfterConnect(pluginManager, gateway, output)
+}
+
+/**
+ * Runs the first-run default plugin seed behind a progress notification,
+ * after the gateway baseline has settled. The runtime is stopped for the
+ * pnpm mutation and restarted afterwards, so the newly installed plugins
+ * are live without requiring a window reload.
+ */
+async function seedDefaultPluginsAfterConnect(
+  pluginManager: DshPluginManager,
+  gateway: HarnessGatewayService,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  try {
+    await gateway.ensureStarted()
+    if (!(await pluginManager.hasPendingDefaultPluginsSeed())) return
+    output.appendLine(vscode.l10n.t('[plugin] Seeding default plugins (first run)…'))
+    await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: vscode.l10n.t('DeepSeek Harness: installing default plugins…'),
+    }, async () => {
+      await gateway.mutateRuntime(() => pluginManager.ensureDefaultPlugins())
+    })
+    output.appendLine(vscode.l10n.t('[plugin] Default plugins ready.'))
+  } catch (cause) {
+    output.appendLine('[plugin] Failed to ensure default plugins: ' + (cause instanceof Error ? cause.message : String(cause)))
+  }
 }
 
 export async function deactivate(): Promise<void> {
