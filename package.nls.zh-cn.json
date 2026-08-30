@@ -28,5 +28,8 @@
   "config.permission.dangerFullAccess": "不施加 Harness 文件沙箱限制。",
   "config.autoAttachSelection": "自动把当前编辑器选区作为可见的提示上下文卡片附加。设为 `false` 后仅通过“⬒ 选区”按钮附加。",
   "config.webSearch": "启用内置 DeepSeek 网页搜索能力，让 Agent 可以联网搜索。修改后需重载工作台生效。",
-  "config.experimentalAutoEffort": "开启实验性自动推理模式，根据任务复杂度自动调度推理深度。"
+  "config.experimentalAutoEffort": "开启实验性自动推理模式，根据任务复杂度自动调度推理深度。",
+  "config.worktreeAutoMerge": "隔离会话的一轮对话结束后，自动把它的改动合并回主分支与主工作区。",
+  "config.worktreeAutoMerge.never": "仅保留手动“审查 / 合并回 / 丢弃”操作。",
+  "config.worktreeAutoMerge.onTurnEnd": "每轮对话完成后自动把会话改动合并回基础分支（主工作区干净时安全同步；主工作区有未提交改动时不会覆盖，只推进分支）。"
 }

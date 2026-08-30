@@ -212,6 +212,19 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "%config.experimentalAutoEffort%"
+        },
+        "deepseekHarness.worktreeAutoMerge": {
+          "type": "string",
+          "enum": [
+            "never",
+            "onTurnEnd"
+          ],
+          "enumDescriptions": [
+            "%config.worktreeAutoMerge.never%",
+            "%config.worktreeAutoMerge.onTurnEnd%"
+          ],
+          "default": "never",
+          "description": "%config.worktreeAutoMerge%"
         }
       }
     }

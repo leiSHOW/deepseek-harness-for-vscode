@@ -48,7 +48,7 @@ const CONFIG = {
   agentPreset: 'standard',
 }
 
-function createService(): { service: GatewayTestHarness; client: TestClient; persist: ReturnType<typeof vi.fn>; worktrees: Record<string, ReturnType<typeof vi.fn>> } {
+function createService(configOverride: Record<string, unknown> = {}): { service: GatewayTestHarness; client: TestClient; persist: ReturnType<typeof vi.fn>; worktrees: Record<string, ReturnType<typeof vi.fn>> } {
   const client: TestClient = {
     workspace: { list: vi.fn(), archiveSession: vi.fn() },
     sessions: {
@@ -76,7 +76,7 @@ function createService(): { service: GatewayTestHarness; client: TestClient; per
   } as unknown as HarnessHostRuntime
 
   const configuration = {
-    get: () => ({ ...CONFIG }),
+    get: () => ({ ...CONFIG, ...configOverride }),
     setAgentPresetIfKnown: vi.fn(),
     setProviderIfConfigured: vi.fn(),
     setModelIfKnown: vi.fn(),
@@ -483,5 +483,60 @@ describe('gateway auto-isolation of host-forked sessions', () => {
     expect(client.sessions.create).not.toHaveBeenCalled()
     expect(service.activeSessionId).toBe('s1')
     expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
+  })
+})
+
+describe('gateway worktree auto-merge', () => {
+  it('merges an isolated session back on turn/end when worktreeAutoMerge is onTurnEnd', async () => {
+    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
+    vi.mocked(worktrees.mergeBack!).mockResolvedValue({ ok: true, message: 'merged' })
+
+    service.handleMux('rpc-auto-merge' as unknown as RpcId, turnEndFrame('s1'))
+    await tick()
+    await tick()
+
+    expect(worktrees.mergeBack).toHaveBeenCalledTimes(1)
+    expect(worktrees.mergeBack).toHaveBeenCalledWith('s1')
+  })
+
+  it('keeps the worktree untouched on turn/end when worktreeAutoMerge is never', async () => {
+    const { service, worktrees } = createService()
+
+    service.handleMux('rpc-auto-merge' as unknown as RpcId, turnEndFrame('s1'))
+    await tick()
+
+    expect(worktrees.mergeBack).not.toHaveBeenCalled()
+  })
+
+  it('skips auto-merge for sessions without an isolated worktree', async () => {
+    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
+    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
+
+    service.handleMux('rpc-auto-merge' as unknown as RpcId, turnEndFrame('s1'))
+    await tick()
+
+    expect(worktrees.mergeBack).not.toHaveBeenCalled()
+  })
+
+  it('does not run concurrent merges for the same session', async () => {
+    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
+    let resolveMerge: (() => void) | undefined
+    let calls = 0
+    vi.mocked(worktrees.mergeBack!).mockImplementation(async () => {
+      calls += 1
+      await new Promise<void>((resolve) => { resolveMerge = resolve })
+      return { ok: true, message: 'merged' }
+    })
+
+    // Two adjacent turn/end events arrive before the first merge settles.
+    service.handleMux('rpc-a' as unknown as RpcId, turnEndFrame('s1'))
+    service.handleMux('rpc-b' as unknown as RpcId, turnEndFrame('s1'))
+    await tick()
+    expect(calls).toBe(1)
+
+    resolveMerge?.()
+    await tick()
+    await tick()
+    expect(calls).toBe(1)
   })
 })
