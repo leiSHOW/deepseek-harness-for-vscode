@@ -89,6 +89,11 @@ export class DshPluginManager {
     await this.markDefaultPluginsSeeded()
   }
 
+  /** Marker-only check (no process spawn): whether default seeding is still pending. */
+  async hasPendingDefaultPluginsSeed(): Promise<boolean> {
+    return await this.defaultPluginsSeedVersion() < DEFAULT_PLUGINS_SEED_VERSION
+  }
+
   async install(value: string): Promise<readonly InstalledDshPlugin[]> {
     if (this.routingSuite.matches(value)) {
       const dependencies = await this.profileDependencies()
