@@ -411,5 +411,8 @@
   "Edit": "编辑",
   "Save": "保存",
   "Cancel": "取消",
-  "Add a follow-up… (queued)": "添加追问…（将加入队列）"
+  "Add a follow-up… (queued)": "添加追问…（将加入队列）",
+  "Session {0} changes were merged into {1}, but your working tree had uncommitted changes and still trails the branch.": "会话 {0} 的改动已合并进 {1}，但你的工作区有未提交的改动，仍停留在分支之后（主代码文件未被改动）。",
+  "Could not auto-merge session {0}: {1}. The session worktree was kept for manual triage.": "无法自动合并会话 {0}：{1}。会话工作树已保留，请手动处理。",
+  "[gateway] Auto-merge failed for session {0}: {1}": "[gateway] 会话 {0} 自动合并失败：{1}"
 }

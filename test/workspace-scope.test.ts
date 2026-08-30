@@ -37,5 +37,24 @@ describe('workspace-scope', () => {
     it('hides a session with no recorded cwd', () => {
       expect(sameWorkspacePath(undefined, '/Users/me/project')).toBe(false)
     })
+
+    it.runIf(process.platform === 'win32')(
+      'matches the same Windows folder across git and fsPath spellings',
+      () => {
+        // git reports repo roots with forward slashes (isolated sessions map
+        // back to the repo root); uri.fsPath spells the open folder with
+        // backslashes. They name the same directory and must match.
+        expect(sameWorkspacePath('E:/vscodeextension/deepseek-harness-for-vscode', 'e:\\vscodeextension\\deepseek-harness-for-vscode')).toBe(true)
+        expect(sameWorkspacePath('E:/react/newssystem', 'e:\\react\\newssystem')).toBe(true)
+      },
+    )
+
+    it.runIf(process.platform === 'win32')(
+      'rejects a different Windows folder regardless of separator spelling',
+      () => {
+        expect(sameWorkspacePath('E:/vscodeextension/project-a', 'e:\\vscodeextension\\project-b')).toBe(false)
+        expect(sameWorkspacePath('E:/vscodeextension', 'e:\\vscodeextension\\deepseek-harness-for-vscode')).toBe(false)
+      },
+    )
   })
 })

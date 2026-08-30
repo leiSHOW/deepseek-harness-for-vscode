@@ -169,6 +169,7 @@ function payload(
     webSearch: true,
     autoAttachSelection: true,
     experimentalAutoEffort: false,
+    worktreeAutoMerge: 'never',
   }
   const active: ActiveSessionView = {
     id: 'session-1',

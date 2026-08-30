@@ -148,6 +148,12 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Sessions for which this client admitted a prompt whose turn events have
    * not arrived yet; guards the idle fast path against same-client rapid sends. */
   private readonly admittedSessions = new Set<string>()
+  /**
+   * Sessions whose worktree is currently being auto-merged after a turn/end.
+   * Keeps two adjacent turn ends from running concurrent git operations on the
+   * same worktree (index.lock races); entries are removed when the merge settles.
+   */
+  private readonly autoMergingSessions = new Set<string>()
 
   readonly onDidChange = this.changeEmitter.event
 
@@ -232,12 +238,15 @@ export class HarnessGatewayService implements vscode.Disposable {
       valueOf(await this.client.host.describe({}))
       await this.connectionSettings.connect(this.client)
       this.startEventStreams()
-      await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
       // The VSCode Memento can be rebuilt empty (state.vscdb), which wipes the
-      // worktree registry. Recover records from disk mirrors so isolated
-      // sessions keep their Review/Merge/Discard affordances across resets.
+      // worktree registry. Recover records from disk mirrors BEFORE the first
+      // session list is rendered: an isolated session's recorded cwd is its
+      // worktree path, and scoping maps it back to the repo root through this
+      // registry. Refreshing the list first would filter every isolated session
+      // out (cwd ≠ workspace folder) and greet the user with an empty history.
       const workspaceRoots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
       await this.worktrees.recover(workspaceRoots)
+      await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
       // Sweep worktrees whose session no longer exists (crash between worktree
       // add and session create, or a session removed out-of-band).
       void this.cleanupOrphanWorktrees()
@@ -1249,6 +1258,50 @@ export class HarnessGatewayService implements vscode.Disposable {
     return outcome
   }
 
+  /**
+   * Auto-merge for `worktreeAutoMerge = onTurnEnd`: when a conversation turn
+   * completes, the session's worktree changes are merged back into the base
+   * branch and — when the main checkout was clean — synced into the main
+   * working tree, so the project reflects the session's work without a manual
+   * step. The session keeps its worktree for the next turn; consecutive turns
+   * merge their incremental delta. Safe by construction: a dirty main checkout
+   * is never clobbered (the branch still advances, reported `merged-dirty`),
+   * and a conflicting merge leaves the worktree intact for manual triage.
+   */
+  private maybeAutoMergeWorktree(sessionId: string): void {
+    if (this.configuration.get().worktreeAutoMerge !== 'onTurnEnd') return
+    if (this.worktrees.recordFor(sessionId) === undefined) return
+    if (this.autoMergingSessions.has(sessionId)) return
+    this.autoMergingSessions.add(sessionId)
+    void this.worktreeMerge(sessionId)
+      .then((outcome) => {
+        if (outcome.ok) {
+          if (outcome.message === 'merged-dirty') {
+            void vscode.window.showWarningMessage(vscode.l10n.t(
+              'Session {0} changes were merged into {1}, but your working tree had uncommitted changes and still trails the branch.',
+              sessionId,
+              this.worktrees.recordFor(sessionId)?.baseBranch ?? 'the base branch',
+            ))
+          }
+          // 'merged' and 'no-changes' need no user attention.
+          return
+        }
+        if (outcome.message !== 'no-worktree') {
+          void vscode.window.showErrorMessage(vscode.l10n.t(
+            'Could not auto-merge session {0}: {1}. The session worktree was kept for manual triage.',
+            sessionId,
+            outcome.message,
+          ))
+        }
+      })
+      .catch((cause: unknown) => {
+        this.output.appendLine(vscode.l10n.t('[gateway] Auto-merge failed for session {0}: {1}', sessionId, errorMessage(cause)))
+      })
+      .finally(() => {
+        this.autoMergingSessions.delete(sessionId)
+      })
+  }
+
   /** Removes an isolated session's worktree and branch; the session log stays. */
   async worktreeDiscard(sessionId: string): Promise<{ ok: boolean; message: string }> {
     const outcome = await this.worktrees.discard(sessionId)
@@ -1389,6 +1442,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (frame.event.type === 'turn/end') {
         this.admittedSessions.delete(id)
         this.flushPendingConfiguration(id)
+        this.maybeAutoMergeWorktree(id)
       }
     } else if (frame.type === 'approval/requested' && String(frame.sessionId) === this.activeSessionId) {
       const key = `approval:${String(rpcId)}`

@@ -23,6 +23,13 @@ import {
 
 export type PermissionMode = PermissionPresetId
 
+/**
+ * When an isolated (worktree-backed) session's conversation turn completes,
+ * its work is merged back into the base branch and the main checkout.
+ * `never` keeps the manual Review / Merge back / Discard triage only.
+ */
+export type WorktreeAutoMergeMode = 'never' | 'onTurnEnd'
+
 /** Immutable settings used by the bundled official Harness Web runtime. */
 export interface HarnessConfiguration {
   readonly model: ModelId
@@ -36,6 +43,8 @@ export interface HarnessConfiguration {
   readonly autoAttachSelection: boolean
   /** Whether experimental automatic reasoning effort mode is enabled. */
   readonly experimentalAutoEffort: boolean
+  /** Whether an isolated session merges back to the main checkout on turn end. */
+  readonly worktreeAutoMerge: WorktreeAutoMergeMode
 }
 
 /** Reads extension settings and reports changes that require a runtime restart. */
@@ -65,6 +74,7 @@ export class ConfigurationService implements vscode.Disposable {
       webSearch: config.get<boolean>('webSearch', true),
       autoAttachSelection: config.get<boolean>('autoAttachSelection', true),
       experimentalAutoEffort: config.get<boolean>('experimentalAutoEffort', false),
+      worktreeAutoMerge: worktreeAutoMergeMode(config.get<string>('worktreeAutoMerge')),
     }
   }
 
@@ -197,4 +207,8 @@ function nonEmpty(value: string | undefined, fallback: string): string {
 
 function permissionMode(value: string | undefined): PermissionMode {
   return permissionPresetId(value)
+}
+
+function worktreeAutoMergeMode(value: string | undefined): WorktreeAutoMergeMode {
+  return value === 'onTurnEnd' ? 'onTurnEnd' : 'never'
 }
