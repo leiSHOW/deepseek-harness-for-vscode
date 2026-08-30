@@ -70,6 +70,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release notes are extracted from CHANGELOG.md, so the repository
+      # must be checked out (the build artifacts arrive via download-artifact).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.tag_name }}
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
