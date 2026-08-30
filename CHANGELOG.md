@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.7
+
+- 修复 Windows 下会话历史列表显示"当前项目还没有会话"的问题：隔离会话的 cwd 是 worktree 路径，列表映射回仓库根时，git 返回的正斜杠路径（`E:/project`）与当前工作区 `uri.fsPath` 的反斜杠路径（`e:\project`）被大小写不敏感但分隔符不归一化的比较判成不同目录，导致所有会话被过滤。现在比较统一归一化分隔符且大小写不敏感，重启 VS Code 后历史列表正常显示，旧数据无需迁移。
+- 启动时序修复：先在启动基线里恢复 worktree 注册表（磁盘镜像 `.git/dsh-worktrees.json` + 目录扫描），再渲染首次会话列表，避免 `state.vscdb` 被重建为空时历史先以空态出现。
+- 新增设置 `deepseekHarness.worktreeAutoMerge`（默认 `never`，可设为 `onTurnEnd`）：隔离会话每轮对话结束后自动把改动合并回基础分支——主工作区干净时改动直接落到主代码文件；主工作区有未提交改动时只推进分支、绝不覆盖你的改动；冲突时保留 worktree 并提示手动处理。手动 ⑂ 的 Review / Merge / Discard 仍然可用。
+- 用内联 SVG 图标替换易被系统渲染成彩色 emoji 的字形（⚙ ⚠ ⚡ ⚑ ★ 等），Windows/macOS 下工作台按钮与状态图标风格统一为单色。
+- 新增 `cross-platform-webview-ui` 技能文档（`.agents/skills`），固化原生 WebView 界面的跨平台实现规范。
+- 默认插件（Super Injector、dsh-chat-import）内置进 VSIX，首次启动从本地 tarball 秒装；首次启动不再阻塞扩展激活，默认插件改为连接成功后后台安装、装完自动重启运行时生效。
+
 ## 0.5.6
 
 - 修复 Windows 上推理档位滑杆拖动不丝滑的问题：原生 range 拖拽会在 Windows Edge 上连续触发 input 事件，每次都会整面板重渲染并重建档位刻度，与自定义平滑旋钮互相打架导致掉帧。现在按下时禁止原生拖拽，改由自定义指针拖拽统一驱动视觉位置与档位值（拖动中只轻量刷新档位标签/刻度高亮，松手才提交一次），任何平台都跟随光标流畅滑动，直接点击轨道跳档也保留。
