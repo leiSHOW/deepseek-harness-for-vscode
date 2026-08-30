@@ -88,7 +88,8 @@ jobs:
         run: |
           tag="${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}"
           section="${tag#v}"
-          awk -v sec="## ${section}" '$0==sec{in=1;next} in&&/^## /{exit} in{print}' CHANGELOG.md > RELEASE_NOTES.md
+          # Note: 'in' is a reserved word in awk, so the section flag uses 'on'.
+          awk -v sec="## ${section}" '$0==sec{on=1;next} on&&/^## /{exit} on{print}' CHANGELOG.md > RELEASE_NOTES.md
           if [ ! -s RELEASE_NOTES.md ]; then
             echo "No CHANGELOG section found for ${section}" >&2
             exit 1
