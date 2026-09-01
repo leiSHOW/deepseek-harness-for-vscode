@@ -11,20 +11,26 @@ interface ComponentOptions {
   readonly document: Document
   readonly translate: Translate
   readonly onOpenFile: (path: string) => void
-  readonly onReview?: () => void
+  readonly onReview: () => void
+  readonly onUndo: () => void
 }
 
+/** Files listed before the "show N more" fold. */
+const VISIBLE_FILE_LIMIT = 3
+
 /**
- * Cursor-style collapsible summary of the lines the agent changed, docked
- * above the composer. "Keep All" dismisses the bar until further edits land;
- * the signature cache keeps streamed state updates from rebuilding the DOM.
+ * New-style "edited files" card, rendered as the final block of the turn
+ * inside the message stream: a header row (file badge, "Edited N files",
+ * cumulative +/− stats, Undo / Review actions) followed by the per-file list
+ * with its own line counts. The signature cache keeps streamed state updates
+ * from rebuilding the DOM when nothing changed.
  */
 export function createSessionChangesComponent(options: ComponentOptions): SessionChangesComponent {
   const root = requiredElement(options.document, 'changes-bar')
   let current: SessionChangesView | undefined
   let signature = ''
   let dismissedSignature = ''
-  let expanded = false
+  let showAll = false
 
   const stats = (added: number, removed: number): HTMLElement[] => [
     node(options.document, 'span', 'changes-added', `+${added}`),
@@ -34,49 +40,52 @@ export function createSessionChangesComponent(options: ComponentOptions): Sessio
   const render = (): void => {
     root.textContent = ''
     if (current === undefined) return
-    const top = node(options.document, 'div', 'changes-top')
+    const card = node(options.document, 'div', 'changes-top')
     const summary = node(options.document, 'button', 'changes-summary') as HTMLButtonElement
     summary.type = 'button'
-    summary.setAttribute('aria-expanded', String(expanded))
+    summary.setAttribute('aria-expanded', String(showAll))
     const fileIcon = node(options.document, 'span', 'changes-file-icon-badge')
     fileIcon.innerHTML = changesFileSvg()
+    const title = node(options.document, 'span', 'changes-count',
+      `${current.files.length} ${options.translate('changesEdited')}`)
     summary.append(
       fileIcon,
-      node(options.document, 'span', 'changes-count', `${current.files.length} ${options.translate('changesChanged')}`),
+      title,
       ...stats(current.added, current.removed),
-      node(options.document, 'span', 'changes-chevron', '⌄'),
     )
     summary.addEventListener('click', () => {
-      expanded = !expanded
+      showAll = !showAll
       render()
     })
-    top.append(summary)
+    card.append(summary)
     const actions = node(options.document, 'div', 'changes-actions')
-    if (options.onReview !== undefined) {
-      const review = node(options.document, 'button', 'changes-review', options.translate('changesReview')) as HTMLButtonElement
-      review.type = 'button'
-      review.addEventListener('click', () => options.onReview?.())
-      actions.append(review)
-    }
-    const close = node(options.document, 'button', 'changes-dismiss', '✕') as HTMLButtonElement
-    close.type = 'button'
-    close.setAttribute('aria-label', options.translate('changesKeepAll'))
-    close.addEventListener('click', () => {
-      dismissedSignature = signature
-      expanded = false
-      root.classList.add('hidden')
-    })
-    actions.append(close)
-    top.append(actions)
-    root.append(top)
-    root.classList.toggle('expanded', expanded)
-    if (!expanded) return
+    const undo = node(options.document, 'button', 'changes-undo', options.translate('changesUndo')) as HTMLButtonElement
+    undo.type = 'button'
+    undo.setAttribute('aria-label', options.translate('changesUndo'))
+    undo.addEventListener('click', () => options.onUndo())
+    const review = node(options.document, 'button', 'changes-review', options.translate('changesReview')) as HTMLButtonElement
+    review.type = 'button'
+    review.addEventListener('click', () => options.onReview())
+    actions.append(undo, review)
+    card.append(actions)
+    root.append(card)
 
+    // File list: always inline, folded past the visible limit.
     const detail = node(options.document, 'div', 'changes-detail')
-    const header = node(options.document, 'div', 'changes-detail-header')
-    header.append(node(options.document, 'span', 'changes-detail-title', `${current.files.length} ${options.translate('changesFiles')}`))
-    detail.append(header)
-    for (const file of current.files) detail.append(fileRow(options, file))
+    detail.append(node(options.document, 'div', 'changes-detail-header',
+      `${current.files.length} ${options.translate('changesFiles')}`))
+    const visible = showAll ? current.files : current.files.slice(0, VISIBLE_FILE_LIMIT)
+    for (const file of visible) detail.append(fileRow(options, file))
+    if (!showAll && current.files.length > VISIBLE_FILE_LIMIT) {
+      const more = node(options.document, 'button', 'changes-more', `${options.translate('changesShowMore')} ${current.files.length - VISIBLE_FILE_LIMIT} ${options.translate('changesFiles')}`) as HTMLButtonElement
+      more.type = 'button'
+      more.setAttribute('aria-expanded', 'false')
+      more.addEventListener('click', () => {
+        showAll = true
+        render()
+      })
+      detail.append(more)
+    }
     root.append(detail)
   }
 
@@ -87,7 +96,7 @@ export function createSessionChangesComponent(options: ComponentOptions): Sessio
       signature = nextSignature
       current = changes ?? undefined
       if (current === undefined || signature === dismissedSignature) {
-        expanded = false
+        showAll = false
         root.classList.add('hidden')
         return
       }

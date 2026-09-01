@@ -54,7 +54,7 @@ function selectTimelineItem(item: ConclusionItem): void {
 }
 
 function smoothScrollConversationTo(target: Element): void {
-  const container = elements.conversation
+  const container = elements.chat
   const start = container.scrollTop
   const targetScroll = start + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 12
   const duration = 420

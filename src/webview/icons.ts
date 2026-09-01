@@ -14,7 +14,7 @@ export type IconName =
   | 'pin' | 'unpin' | 'archive' | 'restore' | 'sendNow' | 'warning'
   | 'terminal' | 'edit' | 'read' | 'search' | 'web' | 'workflow'
   | 'subagent' | 'tool' | 'check' | 'cancel' | 'chevron' | 'checkSquare'
-  | 'star' | 'sparkle' | 'question' | 'image'
+  | 'star' | 'sparkle' | 'question' | 'image' | 'atom' | 'doc' | 'skillDoc' | 'spinner'
 
 const PATHS: Record<IconName, string> = {
   menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
@@ -52,6 +52,14 @@ const PATHS: Record<IconName, string> = {
   sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M12 7l1.2 3.8L17 12l-3.8 1.2L12 17l-1.2-3.8L7 12l3.8-1.2L12 7z"/>',
   question: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  /** DeepSeek Harness "thinking" mark: four petals around a center dot. */
+  atom: '<circle cx="12" cy="12" r="1.4"/><ellipse cx="12" cy="11" rx="7.2" ry="3.6" transform="rotate(0 12 12)"/><ellipse cx="12" cy="11" rx="7.2" ry="3.6" transform="rotate(90 12 12)"/>',
+  /** Read-style document: rounded page with two text lines. */
+  doc: '<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M9 8.5h6M9 12.5h6"/>',
+  /** Skill: document with a sparkle on the top-right corner. */
+  skillDoc: '<rect x="4.5" y="4" width="13" height="15.5" rx="2.5"/><path d="M8 8.5h6M8 12h4"/><path d="M18.5 2.5v4M16.5 4.5h4"/><path d="M19.5 6.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4z"/>',
+  /** In-flight spinner arc (VS Code sync~spin style); rotate via CSS spin. */
+  spinner: '<path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/>',
 }
 
 /** Inline SVG markup for a named icon, sized in px, colored by the theme via currentColor. */

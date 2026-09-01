@@ -452,9 +452,28 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         break
       }
       case 'sessionChangesReview': {
-        // Open VS Code's native Source Control "Changes" review view: commit
-        // box, file filter, per-file add/remove stats and review progress.
+        // Open a real unified-diff document for the latest turn's edits —
+        // the worktree diff when the session is isolated, else the main
+        // checkout's uncommitted diff. Falls back to VS Code's Source
+        // Control review when no diff text is available.
+        const diff = await this.gateway.recentTurnDiff(this.gateway.openSessionId())
+        if (diff !== undefined && diff.trim() !== '') {
+          const document = await vscode.workspace.openTextDocument({ language: 'diff', content: diff })
+          await vscode.window.showTextDocument(document, { preview: true })
+          break
+        }
         await vscode.commands.executeCommand('workbench.view.scm')
+        break
+      }
+      case 'sessionChangesUndo': {
+        const sessionId = this.gateway.openSessionId()
+        if (sessionId !== undefined && (await this.gateway.worktreeDiscard(sessionId)).ok) {
+          void vscode.window.showInformationMessage(vscode.l10n.t('The session worktree changes were discarded.'))
+        } else {
+          void vscode.window.showInformationMessage(
+            vscode.l10n.t('Undo of the last turn is only available for isolated sessions.'),
+          )
+        }
         break
       }
     }

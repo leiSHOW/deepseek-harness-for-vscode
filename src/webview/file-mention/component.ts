@@ -21,7 +21,7 @@ interface ActiveMention {
   readonly query: string
 }
 
-/** Codex-style @ workspace file autocomplete for the prompt textarea. */
+/** @ workspace file autocomplete for the prompt textarea. */
 export function createFileMentionComponent(options: FileMentionOptions): FileMentionComponent {
   const menu = requiredElement(options.document, 'file-mention-menu')
   let active: ActiveMention | undefined

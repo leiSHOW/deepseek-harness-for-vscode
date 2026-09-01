@@ -157,6 +157,8 @@ interface GatewayTestHarness {
   handleHost: (frame: HostFrame) => void
   sendPrompt: (text: string, mode?: 'queue' | 'steer', attachments?: unknown[], configuration?: unknown, signals?: unknown) => Promise<void>
   removeQueued: (itemId: string) => Promise<void>
+  steerQueued: (itemId: string) => Promise<void>
+  queue: readonly { id: string; message: { content: readonly { type: string; text?: string }[] } }[]
   selectModel: (provider: string, model: string, reasoningEffort?: string, persist?: boolean, signals?: unknown) => Promise<void>
 }
 
@@ -554,5 +556,91 @@ describe('gateway worktree auto-merge', () => {
     await tick()
     await tick()
     expect(calls).toBe(1)
+  })
+})
+
+describe('gateway steerQueued (send now)', () => {
+  function queueItem(id: string, text = 'hello', image = false): GatewayTestHarness['queue'][number] {
+    const content = image
+      ? [{ type: 'image' as const }]
+      : [{ type: 'text' as const, text }]
+    return { id, message: { content } }
+  }
+
+  it('promotes the item through the host steer when it is accepted', async () => {
+    const { service, client } = createService()
+    service.queue = [queueItem('q1')]
+
+    await service.steerQueued('q1')
+
+    expect(client.sessions.updateQueue).toHaveBeenCalledWith(expect.objectContaining({ itemId: 'q1', action: { kind: 'steer' } }))
+    expect(client.sessions.prompt).not.toHaveBeenCalled()
+  })
+
+  it('silently ignores an item the turn already claimed', async () => {
+    const { service, client } = createService()
+    service.queue = [queueItem('q1')]
+    vi.mocked(client.sessions.updateQueue).mockResolvedValueOnce({
+      result: { ok: false, error: { code: 'queue-item-not-found', message: 'already claimed' } },
+    } as never)
+
+    await expect(service.steerQueued('q1')).resolves.toBeUndefined()
+
+    expect(client.sessions.prompt).not.toHaveBeenCalled()
+  })
+
+  it('interrupts a running turn with a steer prompt when the queue steer is refused', async () => {
+    const { service, client } = createService()
+    service.queue = [queueItem('q1')]
+    vi.mocked(client.sessions.updateQueue)
+      .mockResolvedValueOnce({
+        result: { ok: false, error: { code: 'steer-unavailable', message: 'no longer steerable' } },
+      } as never)
+      .mockResolvedValueOnce({ result: { ok: true, value: { accepted: true } } } as never)
+    vi.mocked(client.sessions.prompt).mockResolvedValueOnce({
+      result: { ok: true, value: { accepted: true } },
+    } as never)
+
+    await service.steerQueued('q1')
+
+    expect(client.sessions.prompt).toHaveBeenCalledTimes(1)
+    expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'steer',
+      content: [{ type: 'text', text: 'hello' }],
+    }))
+  })
+
+  it('falls back to a queued prompt when the idle agent refuses steering', async () => {
+    const { service, client } = createService()
+    service.queue = [queueItem('q1')]
+    vi.mocked(client.sessions.updateQueue)
+      .mockResolvedValueOnce({
+        result: { ok: false, error: { code: 'steer-unavailable', message: 'idle' } },
+      } as never)
+      .mockResolvedValueOnce({ result: { ok: true, value: { accepted: true } } } as never)
+    vi.mocked(client.sessions.prompt)
+      .mockResolvedValueOnce({
+        result: { ok: false, error: { code: 'agent-busy', message: 'prompt rejected' } },
+      } as never)
+      .mockResolvedValueOnce({ result: { ok: true, value: { accepted: true } } } as never)
+
+    await service.steerQueued('q1')
+
+    expect(client.sessions.prompt).toHaveBeenCalledTimes(2)
+    expect(client.sessions.prompt).toHaveBeenNthCalledWith(1, expect.objectContaining({ mode: 'steer' }))
+    expect(client.sessions.prompt).toHaveBeenNthCalledWith(2, expect.objectContaining({ mode: 'queue' }))
+  })
+
+  it('keeps the original error for image items instead of re-submitting them', async () => {
+    const { service, client } = createService()
+    service.queue = [queueItem('q1', 'hello', true)]
+    vi.mocked(client.sessions.updateQueue).mockResolvedValueOnce({
+      result: { ok: false, error: { code: 'steer-unavailable', message: 'no longer steerable' } },
+    } as never)
+
+    await expect(service.steerQueued('q1')).rejects.toThrow('no longer steerable')
+
+    expect(client.sessions.updateQueue).toHaveBeenCalledTimes(1)
+    expect(client.sessions.prompt).not.toHaveBeenCalled()
   })
 })

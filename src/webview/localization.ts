@@ -205,9 +205,10 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   queuedPromptPlaceholder: 'Add a follow-up… (queued)',
   queuedMessages: 'Queued',
   sessionChanges: 'Session changes',
-  changesChanged: 'Changed',
+  changesEdited: 'files edited',
   changesFiles: 'files',
-  changesKeepAll: 'Keep All',
+  changesShowMore: 'Show',
+  changesUndo: 'Undo',
   changesReview: 'Review',
   sendNow: 'Send now',
   removeQueued: 'Withdraw',
@@ -223,6 +224,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   copied: 'Copied',
   copyConclusion: 'Copy conclusion',
   copyCode: 'Copy {language} code',
+  expandCode: 'Show {lines} more lines',
 } as const
 
 export type WebviewMessageKey = keyof typeof ENGLISH_WEBVIEW_MESSAGES

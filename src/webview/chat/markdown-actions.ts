@@ -10,4 +10,5 @@ export const markdownActions: MarkdownActions = {
   copyLabel: t('copy'),
   copiedLabel: t('copied'),
   copyCodeLabel: (language) => t('copyCode', { language }),
+  expandCodeLabel: (hiddenLines) => t('expandCode', { lines: hiddenLines }),
 }

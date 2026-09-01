@@ -828,13 +828,20 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /**
    * Promotes one still-pending queued prompt into the current turn, so it is
-   * answered immediately instead of after the running turn completes. When the
-   * running turn was just cancelled the host refuses steering (an idle agent
-   * accepts no steer and returns `steer-unavailable`); in that case withdraw
-   * the still-pending text item and re-send its content so the message still
-   * goes out instead of being stranded in the queue dock. Items carrying image
-   * attachments keep the original error, because their content is a reference
-   * that cannot be re-submitted through the prompt contract.
+   * answered immediately instead of after the running turn completes.
+   *
+   * The host only accepts a queue steer while the agent is running and the
+   * item still sits in the next-turn inbox. When that is refused
+   * (`steer-unavailable` — the running turn ended, or the item moved into the
+   * next-step inbox) the pending text is withdrawn and re-dispatched: a
+   * `steer` prompt interrupts the running turn so the message is answered NOW;
+   * when the agent is idle steering is refused again and the queued prompt
+   * runs immediately instead. Either way the message goes out instead of
+   * staying stranded in the queue dock. An item the turn already claimed
+   * (`queue-item-not-found`) is silently ignored, matching the official UI.
+   * Items carrying image attachments keep the original error, because their
+   * content is a reference that cannot be re-submitted through the prompt
+   * contract.
    */
   async steerQueued(itemId: string): Promise<void> {
     const sessionId = this.requireActiveSession()
@@ -845,6 +852,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       action: { kind: 'steer' },
     })
     if (response.result.ok) return
+    if (response.result.error.code === 'queue-item-not-found') return
     if (response.result.error.code !== 'steer-unavailable') {
       throw new Error(response.result.error.message)
     }
@@ -863,12 +871,15 @@ export class HarnessGatewayService implements vscode.Disposable {
       action: { kind: 'remove' },
     })
     if (!removed.result.ok) throw new Error(removed.result.error.message)
-    await client.sessions.prompt({
+    const prompt = {
       sessionId: sessionId as SessionId,
-      mode: 'queue',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text' as const, text }],
       clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    })
+    }
+    const steered = await client.sessions.prompt({ ...prompt, mode: 'steer' })
+    if (steered.result.ok) return
+    const queued = await client.sessions.prompt({ ...prompt, mode: 'queue' })
+    if (!queued.result.ok) throw new Error(queued.result.error.message)
   }
 
   /** Withdraws one still-pending queued prompt before the agent claims it. */
@@ -1233,10 +1244,29 @@ export class HarnessGatewayService implements vscode.Disposable {
     return this.worktrees.diffText(sessionId)
   }
 
+  /**
+   * Diff of the most recently concluded turn: the isolated worktree diff when
+   * the session runs in one, else the shared checkout's uncommitted diff
+   * against HEAD. Used by the "Review" action on the edited-files card.
+   */
+  async recentTurnDiff(sessionId: string | undefined): Promise<string | undefined> {
+    if (sessionId === undefined) return undefined
+    const isolated = await this.worktrees.diffText(sessionId)
+    if (isolated !== undefined) return isolated
+    const repoRoot = this.worktrees.repoRootFor(sessionId)
+    if (repoRoot === undefined) return undefined
+    return this.worktrees.workingTreeDiff(repoRoot)
+  }
+
   /** The worktree record for one session, if isolated (host-side triage reads it). */
   worktreeRecord(sessionId: string): { readonly baseBranch: string; readonly branch: string } | undefined {
     const record = this.worktrees.recordFor(sessionId)
     return record === undefined ? undefined : { baseBranch: record.baseBranch, branch: record.branch }
+  }
+
+  /** The currently open session id, if any. */
+  openSessionId(): string | undefined {
+    return this.activeSessionId
   }
 
   /**

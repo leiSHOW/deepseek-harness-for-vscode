@@ -68,6 +68,7 @@ components.sessionChanges = createSessionChangesComponent({
   translate: t,
   onOpenFile: (path) => post('openFile', { path }),
   onReview: () => post('sessionChangesReview'),
+  onUndo: () => post('sessionChangesUndo'),
 })
 
 components.streamingMessage = new StreamingMessageComponent({
@@ -83,7 +84,7 @@ components.streamingMessage = new StreamingMessageComponent({
   onStreamFrame: () => {
     // A pending pointer interaction (scrollbar grab, text selection) pauses
     // the pin so the reader's cursor never fights the auto-scroll.
-    if (followStream && !interactionArmed && isNearBottom(elements.conversation)) {
+    if (followStream && !interactionArmed && isNearBottom(elements.chat)) {
       pinConversationToBottom()
     }
   },

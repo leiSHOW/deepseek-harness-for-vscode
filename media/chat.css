@@ -815,8 +815,11 @@ body.vscode-high-contrast .brand-logo {
 .chat {
   width: 100%;
   height: 100%;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto auto auto;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
 }
 .workbench,
 .chat,
@@ -836,10 +839,9 @@ body.vscode-high-contrast .brand-logo {
 }
 .conversation {
   min-height: 0;
-  padding: 9px 10px 18px;
+  flex: 1 0 auto;
+  padding: 9px 8px 14px;
   overflow-x: hidden;
-  overflow-y: auto;
-  scroll-behavior: smooth;
 }
 .messages {
   width: 100%;
@@ -888,7 +890,7 @@ body.vscode-high-contrast .empty-logo {
 .messages {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 /* Step timeline: while a conversation is in flight a spine runs
    down the left corridor of the transcript. Thinking, tool and notice steps
@@ -988,17 +990,19 @@ body.vscode-high-contrast .empty-logo {
    copy footer only exists on the finished conclusion, so these target exactly
    the moment the turn ends. */
 .message:has(.message-copy-footer):not(:has(.reasoning-block)) {
-  margin-top: 6px;
-  padding-top: 11px;
-  border-top: 1px solid var(--vscode-widget-border);
+  margin-top: 5px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 65%, transparent);
 }
 .message:has(.message-copy-footer)
   .message-body
   > .reasoning-block
   + .content-block {
-  margin-top: 10px;
-  padding-top: 11px;
-  border-top: 1px solid var(--vscode-widget-border);
+  margin-top: 9px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 65%, transparent);
 }
 .message-copy-footer {
   display: inline-flex;
@@ -1053,16 +1057,12 @@ body.vscode-high-contrast .empty-logo {
 }
 .message.user .message-body {
   max-width: 88%;
-  padding: 7px 11px;
+  padding: 8px 12px;
   color: var(--vscode-foreground);
   background: color-mix(
     in srgb,
-    var(
-        --vscode-button-secondaryBackground,
-        var(--vscode-editorWidget-background)
-      )
-      78%,
-    transparent
+    var(--vscode-editorWidget-background) 78%,
+    var(--vscode-sideBar-background)
   );
   border-radius: 14px 14px 4px 14px;
 }
@@ -1150,11 +1150,16 @@ body.vscode-high-contrast .empty-logo {
   margin: 0.85em 0;
   padding: 12px;
   overflow: auto;
-  background: var(
-    --vscode-textCodeBlock-background,
-    var(--vscode-editor-background)
+  /* Quiet recessed code surface: only a whisper of the theme foreground is
+     blended in (6%, not 14%) so the block reads as a slightly distinct panel
+     instead of a bright grey slab. The border carries the separation. */
+  background: color-mix(
+    in srgb,
+    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 94%,
+    var(--vscode-foreground) 6%
   );
-  border: 1px solid var(--vscode-widget-border);
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
   border-radius: 8px;
   white-space: pre;
   line-height: 1.6;
@@ -1165,11 +1170,85 @@ body.vscode-high-contrast .empty-logo {
   background: transparent;
   border-radius: 0;
 }
+/* highlight.js token colours. Fixed palettes (not theme tokens) by design:
+   syntax colours are conventional (VS Code Dark+ / Light+) and must stay
+   readable on the code-block surface in both themes. */
+.markdown-body .hljs { color: var(--vscode-editor-foreground); background: transparent; }
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote { color: #6a9955; font-style: italic; }
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-meta .hljs-keyword,
+.markdown-body .hljs-template-tag { color: #569cd6; }
+.markdown-body .hljs-string,
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-addition { color: #ce9178; }
+.markdown-body .hljs-number,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet { color: #b5cea8; }
+.markdown-body .hljs-title,
+.markdown-body .hljs-title.function_,
+.markdown-body .hljs-section { color: #dcdcaa; }
+.markdown-body .hljs-type,
+.markdown-body .hljs-class .hljs-title,
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-attr { color: #4ec9b0; }
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-template-variable { color: #9cdcfe; }
+.markdown-body .hljs-params,
+.markdown-body .hljs-property { color: #d4d4d4; }
+.markdown-body .hljs-name,
+.markdown-body .hljs-selector-id,
+.markdown-body .hljs-selector-class { color: #c586c0; }
+.markdown-body .hljs-deletion { color: #f48771; }
+.markdown-body .hljs-emphasis { font-style: italic; }
+.markdown-body .hljs-strong { font-weight: 600; }
+.markdown-body .hljs-meta { color: #c586c0; }
+.markdown-body .hljs-subst { color: #d4d4d4; }
+.markdown-body .hljs-addition { background: color-mix(in srgb, #48bb78 18%, transparent); }
+.markdown-body .hljs-deletion { background: color-mix(in srgb, #f14c4c 18%, transparent); }
+body.vscode-light .markdown-body .hljs-comment,
+body.vscode-light .markdown-body .hljs-quote { color: #008000; }
+body.vscode-light .markdown-body .hljs-keyword,
+body.vscode-light .markdown-body .hljs-selector-tag,
+body.vscode-light .markdown-body .hljs-literal,
+body.vscode-light .markdown-body .hljs-doctag { color: #0000ff; }
+body.vscode-light .markdown-body .hljs-string,
+body.vscode-light .markdown-body .hljs-regexp,
+body.vscode-light .markdown-body .hljs-addition { color: #a31515; }
+body.vscode-light .markdown-body .hljs-number,
+body.vscode-light .markdown-body .hljs-symbol,
+body.vscode-light .markdown-body .hljs-bullet { color: #098658; }
+body.vscode-light .markdown-body .hljs-title,
+body.vscode-light .markdown-body .hljs-title.function_ { color: #795e26; }
+body.vscode-light .markdown-body .hljs-type,
+body.vscode-light .markdown-body .hljs-class .hljs-title,
+body.vscode-light .markdown-body .hljs-built_in { color: #267f99; }
+body.vscode-light .markdown-body .hljs-attribute,
+body.vscode-light .markdown-body .hljs-variable { color: #001080; }
+body.vscode-light .markdown-body .hljs-name,
+body.vscode-light .markdown-body .hljs-selector-id,
+body.vscode-light .markdown-body .hljs-selector-class,
+body.vscode-light .markdown-body .hljs-meta { color: #af00db; }
+body.vscode-light .markdown-body .hljs-deletion { color: #cd3131; }
+/* diff language: hljs emits addition/deletion tokens (already covered) but
+   the legacy em-dash convention should read the same on both surface. */
+body.vscode-light .markdown-body .hljs-addition { background: color-mix(in srgb, #48bb78 14%, transparent); }
+body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb, #f14c4c 14%, transparent); }
 .markdown-body .md-codeblock {
   margin: 0.65em 0;
   overflow: hidden;
-  border: 1px solid var(--vscode-widget-border);
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
   border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 94%,
+    var(--vscode-foreground) 6%
+  );
 }
 .markdown-body .md-codeblock-header {
   display: flex;
@@ -1177,10 +1256,13 @@ body.vscode-high-contrast .empty-logo {
   justify-content: space-between;
   padding: 3px 8px;
   color: var(--vscode-descriptionForeground);
-  background: var(
-    --vscode-textCodeBlock-background,
-    var(--vscode-editor-background)
+  background: color-mix(
+    in srgb,
+    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 88%,
+    var(--vscode-foreground) 9%
   );
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--vscode-foreground) 16%, transparent);
   font-size: 11px;
 }
 .markdown-body .md-codeblock-lang {
@@ -1191,6 +1273,52 @@ body.vscode-high-contrast .empty-logo {
   margin: 0;
   border: 0;
   border-radius: 0;
+}
+/* Long code blocks collapse to a preview with a faded tail and an expand
+   affordance ("Show N more lines"), like VS Code's diff folds. The inner
+   scroller is disabled while collapsed so the outer tool-detail container
+   owns the single scrollbar — no inner/outer double scroll. */
+.markdown-body .md-codeblock pre.collapsed {
+  position: relative;
+  max-height: 260px;
+  overflow: hidden;
+  white-space: pre;
+}
+.markdown-body .md-codeblock pre.collapsed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 64px;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    color-mix(
+        in srgb,
+        var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 92%,
+        var(--vscode-foreground) 5%
+      )
+      98%,
+    transparent
+  );
+}
+.md-codeblock-expand {
+  display: block;
+  margin: 0 auto;
+  padding: 3px 12px;
+  color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font-size: 10.5px;
+  cursor: pointer;
+  text-align: center;
+  width: max-content;
+}
+.md-codeblock-expand:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
 }
 .markdown-body table {
   display: block;
@@ -1226,27 +1354,24 @@ body.vscode-high-contrast .empty-logo {
   text-decoration: underline;
 }
 .reasoning-block {
-  margin: 3px 0 7px;
+  margin: 2px 0 6px;
   overflow: hidden;
   color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border-radius: 8px;
+}
+/* A running turn tints the thinking row slightly so the eye can find the
+   in-flight step without a heavy card border. */
+.reasoning-block.running {
   background: color-mix(
     in srgb,
-    var(--vscode-editorWidget-background) 58%,
+    var(--vscode-progressBar-background) 8%,
     transparent
-  );
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 10px;
-}
-.reasoning-block.running {
-  border-color: color-mix(
-    in srgb,
-    var(--vscode-progressBar-background) 52%,
-    var(--vscode-widget-border)
   );
 }
 .reasoning-block summary {
-  min-height: 28px;
-  padding: 5px 8px;
+  min-height: 26px;
+  padding: 4px 8px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1259,16 +1384,22 @@ body.vscode-high-contrast .empty-logo {
   display: none;
 }
 .reasoning-dot {
-  width: 7px;
-  height: 7px;
+  width: 14px;
+  height: 14px;
   flex: none;
-  background: var(--vscode-descriptionForeground);
-  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-descriptionForeground);
+}
+.reasoning-dot svg {
+  width: 12px;
+  height: 12px;
 }
 .reasoning-block.running .reasoning-dot {
-  background: var(--vscode-progressBar-background);
-  box-shadow: 0 0 0 3px
-    color-mix(in srgb, var(--vscode-progressBar-background) 16%, transparent);
+  color: var(--vscode-progressBar-background);
+  filter: drop-shadow(0 0 3px
+    color-mix(in srgb, var(--vscode-progressBar-background) 45%, transparent));
   animation: reasoning-pulse 1.2s ease-in-out infinite;
 }
 .reasoning-label {
@@ -1290,8 +1421,12 @@ body.vscode-high-contrast .empty-logo {
 .reasoning-summary::before {
   content: "· ";
 }
+/* While the thinking block streams, the summary row keeps the one-line live
+   preview (DSH Web UI style) instead of hiding it: the reader always sees the
+   newest thought fragment on the collapsed row. */
 .reasoning-block.running .reasoning-summary {
-  display: none;
+  display: block;
+  opacity: 1;
 }
 .reasoning-chevron {
   flex: none;
@@ -1369,7 +1504,7 @@ body.vscode-high-contrast .empty-logo {
 @media (prefers-reduced-motion: reduce) {
   .streaming-indicator-dot,
   .reasoning-block.running .reasoning-dot,
-  .tool-card.running .tool-status,
+  .tool-card.running .tool-status svg,
   .startup-logo,
   .startup-dots span,
   .activity-star,
@@ -1554,30 +1689,32 @@ body.vscode-high-contrast .empty-logo {
 
 .tool-card,
 .context-card {
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 8px;
   overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--vscode-editorWidget-background) 62%,
+    transparent
+  );
 }
 /* Give consecutive tool cards more breathing room than the default message gap. */
 .tool-item + .tool-item {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .tool-card summary,
 .context-card summary {
-  padding: 6px 8px;
+  padding: 5px 8px;
   display: flex;
   align-items: center;
   gap: 7px;
   cursor: pointer;
-  background: color-mix(
-    in srgb,
-    var(--vscode-editor-background) 70%,
-    transparent
-  );
+  background: transparent;
   font-size: 11px;
 }
 .tool-status {
-  width: 14px;
+  width: 16px;
+  height: 16px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -1586,9 +1723,18 @@ body.vscode-high-contrast .empty-logo {
   font-size: 11px;
   line-height: 1;
 }
+.tool-status svg {
+  width: 13px;
+  height: 13px;
+}
 .tool-card.running .tool-status {
   color: var(--vscode-charts-blue, #4d8cff);
-  animation: tool-blink 1s ease-in-out infinite;
+}
+/* The in-flight tool glyph is a spinning arc (VS Code sync~spin style):
+   continuous rotation reads as "executing" far better than a blink. */
+.tool-card.running .tool-status svg {
+  animation: spin 0.9s linear infinite;
+  transform-origin: 50% 50%;
 }
 .tool-card.success .tool-status {
   color: var(--vscode-testing-iconPassed);
@@ -1596,24 +1742,20 @@ body.vscode-high-contrast .empty-logo {
 .tool-card.error .tool-status {
   color: var(--vscode-testing-iconFailed);
 }
-@keyframes tool-blink {
-  50% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-}
 .tool-detail {
-  max-height: 250px;
+  max-height: 320px;
   margin: 0;
-  padding: 8px;
+  padding: 8px 10px 9px;
   overflow: auto;
   color: var(--vscode-editor-foreground);
-  background: var(--vscode-editor-background);
+  background: var(--vscode-editorWidget-background);
+  border-top: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 55%, transparent);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 .tool-section-label {
   padding: 6px 8px 0;
@@ -1621,6 +1763,7 @@ body.vscode-high-contrast .empty-logo {
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  opacity: 0.85;
 }
 .tool-tokens {
   text-transform: none;
@@ -1641,6 +1784,71 @@ body.vscode-high-contrast .empty-logo {
 }
 .tool-detail.markdown-body > :last-child {
   margin-bottom: 0;
+}
+/* Inside a tool card the outer .tool-detail is the single scroller: the
+   embedded code block must not keep its own scrolling viewport, which would
+   stack a second scrollbar and double-pad the right edge. This selector must
+   out-specify the global `.markdown-body .md-codeblock pre` (0,3,1), so keep
+   both classes: `.tool-detail.markdown-body` is exactly what a rendered
+   markdown payload carries. */
+.tool-detail.markdown-body .md-codeblock pre {
+  max-height: none;
+  overflow: visible;
+}
+.tool-detail.markdown-body .md-codeblock pre.collapsed {
+  max-height: 220px;
+  overflow: hidden;
+}
+/* Human-readable edit diffs inside tool cards read like a code block: green
+   additions, red removals, monospace text on the code-block surface. */
+.tool-diff-path {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--vscode-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tool-diff {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  /* The outer .tool-detail owns scrolling; the diff viewport only limits its
+     own height so a huge diff cannot balloon the card, and it never renders
+     a second scrollbar. */
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 94%,
+    var(--vscode-foreground) 6%
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+.tool-diff code {
+  display: block;
+  min-width: max-content;
+  font-family: inherit;
+}
+.tool-diff .diff-add,
+.tool-diff .diff-del {
+  display: block;
+  margin: 0 -10px;
+  padding: 0 10px;
+}
+.tool-diff .diff-add {
+  color: var(--vscode-diffEditor-insertedTextForeground, var(--vscode-testing-iconPassed));
+  background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, #48bb78 15%, transparent));
+}
+.tool-diff .diff-del {
+  color: var(--vscode-diffEditor-removedTextForeground, var(--vscode-testing-iconFailed));
+  background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, #f14c4c 15%, transparent));
 }
 .tool-preview {
   min-width: 0;
@@ -1764,8 +1972,9 @@ body.vscode-high-contrast .empty-logo {
   display: grid;
   gap: 1px;
   padding: 4px 8px 6px;
-  background: var(--vscode-editor-background);
-  border-top: 1px solid var(--vscode-widget-border);
+  background: transparent;
+  border-top: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 55%, transparent);
 }
 .todo-card .todo-list .todo-row {
   padding: 3px 3px;
@@ -2121,13 +2330,19 @@ body.vscode-high-contrast .empty-logo {
 }
 
 .composer-shell {
-  margin: 2px 6px 0;
+  margin: 2px 6px 4px;
   overflow: visible;
+  flex: none;
+  /* The composer floats above the transcript: the whole .chat is
+     the scroll container, so the scrollbar runs the full panel height down to
+     the input box while the composer itself stays pinned to the bottom. */
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
   border-radius: 12px;
   box-shadow: 0 2px 8px color-mix(in srgb, #000 8%, transparent);
-  position: relative;
 }
 .composer-shell:focus-within {
   border-color: var(--vscode-focusBorder);
@@ -2208,14 +2423,27 @@ body.vscode-high-contrast .empty-logo {
   outline: 0;
   font-size: 11.5px;
 }
+/* New-style edited-files card, docked above the composer: a header row
+   (file badge, "Edited N files", cumulative +/− stats, Undo / Review) over an
+   always-visible per-file list. The bar is a rounded panel with a light
+   surface instead of a full-bleed strip, and the file list follows the
+   transcript semantics ("+170 −2" per row). */
 .changes-bar {
-  border-bottom: 1px solid
-    var(--vscode-input-border, var(--vscode-widget-border));
-  font-size: 11.5px;
+  margin: 2px 4px 8px;
+  padding: 9px 11px;
   display: flex;
   flex-direction: column;
-  padding: 5px 13px;
-  background: var(--vscode-editorWidget-background);
+  gap: 4px;
+  color: var(--vscode-foreground);
+  background: color-mix(
+    in srgb,
+    var(--vscode-editorWidget-background) 82%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 72%, transparent);
+  border-radius: 12px;
+  font-size: 11.5px;
 }
 .changes-top {
   display: flex;
@@ -2229,8 +2457,8 @@ body.vscode-high-contrast .empty-logo {
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: var(--vscode-input-foreground);
+  gap: 8px;
+  color: var(--vscode-foreground);
   background: transparent;
   border: 0;
   font: inherit;
@@ -2242,8 +2470,8 @@ body.vscode-high-contrast .empty-logo {
   opacity: 0.92;
 }
 .changes-file-icon-badge {
-  width: 26px;
-  height: 26px;
+  width: 27px;
+  height: 27px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -2263,32 +2491,44 @@ body.vscode-high-contrast .empty-logo {
   white-space: nowrap;
   font-weight: 600;
 }
-.changes-chevron {
-  flex: none;
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
-  transition: transform 140ms ease;
-}
-.changes-bar.expanded .changes-chevron {
-  transform: rotate(180deg);
-}
 .changes-added {
   flex: none;
   color: var(--vscode-gitDecoration-addedResourceForeground, #48bb78);
   font-size: 10.5px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .changes-removed {
   flex: none;
   color: var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c);
   font-size: 10.5px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .changes-actions {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+}
+.changes-undo {
+  padding: 3px 9px;
+  color: var(--vscode-foreground);
+  background: color-mix(
+    in srgb,
+    var(--vscode-editor-background) 72%,
+    transparent
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.changes-undo:hover {
+  background: var(--vscode-toolbar-hoverBackground);
 }
 .changes-review {
   padding: 3px 12px;
@@ -2308,58 +2548,31 @@ body.vscode-high-contrast .empty-logo {
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 .changes-review:hover {
   background: var(--vscode-button-hoverBackground);
 }
-.changes-dismiss {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--vscode-descriptionForeground);
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-}
-.changes-dismiss:hover {
-  color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-hoverBackground);
-}
 .changes-detail {
-  max-height: 180px;
-  padding: 4px 0 3px;
-  overflow-y: auto;
-  border-top: 1px solid var(--vscode-widget-border);
+  padding: 3px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .changes-detail-header {
-  padding: 2px 0 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.changes-detail-title {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
+  padding: 1px 2px 3px;
   color: var(--vscode-descriptionForeground);
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .changes-file {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 6px;
+  gap: 8px;
+  padding: 3px 6px;
   border-radius: 7px;
   cursor: pointer;
 }
@@ -2372,14 +2585,14 @@ body.vscode-high-contrast .empty-logo {
 }
 .changes-file-icon {
   flex: none;
-  min-width: 20px;
-  padding: 0 3px;
+  min-width: 22px;
+  padding: 0 4px;
   color: var(--vscode-descriptionForeground);
   background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
-  border-radius: 3px;
+  border-radius: 4px;
   font-size: 8.5px;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.6;
   text-align: center;
   text-transform: uppercase;
 }
@@ -2387,11 +2600,26 @@ body.vscode-high-contrast .empty-logo {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--vscode-input-foreground);
+  color: var(--vscode-foreground);
   font-size: 11.5px;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.changes-more {
+  align-self: flex-start;
+  margin: 2px 2px 0;
+  padding: 3px 8px;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.changes-more:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
 }
 .configuration-panel {
   position: absolute;
@@ -2614,7 +2842,7 @@ body.vscode-high-contrast .empty-logo {
   border-radius: 10px;
   text-align: left;
 }
-/* Codex-style flat model rows: no card chrome, the check mark carries the
+/* Flat model rows: no card chrome, the check mark carries the
    selection and hover gets the rounded wash. */
 .configuration-model-group .configuration-option {
   min-height: 0;
@@ -2728,6 +2956,16 @@ body.vscode-high-contrast .empty-logo {
   --effort-color: #9b7cff;
   --effort-progress: 50%;
   --effort-position: 0.5;
+  /* dsh-reasoning-effort track: dark = near-black → blue → violet, light =
+     white → blue. Kept as a single variable so it can be overridden per
+     theme without touching the slider rules. */
+  --effort-track: linear-gradient(
+    to right,
+    #14171f 0%,
+    #1e2d4f 45%,
+    #3f5fd9 72%,
+    #6f4fd8 100%
+  );
   position: relative;
   padding: 7px 11px 6px;
   display: grid;
@@ -2735,6 +2973,24 @@ body.vscode-high-contrast .empty-logo {
   border-top: 1px solid var(--vscode-widget-border);
   background: var(--vscode-editorWidget-background);
   transition: background-color 160ms ease;
+}
+body.vscode-light .effort-control {
+  --effort-track: linear-gradient(
+    to right,
+    #eef3fb 0%,
+    #cfe3f9 45%,
+    #8fc3f2 72%,
+    #5f9de8 100%
+  );
+}
+body.vscode-light .effort-control[data-effort="max"] {
+  --effort-track: linear-gradient(
+    to right,
+    #eef3fb 0%,
+    #cfe3f9 45%,
+    #8fc3f2 72%,
+    #3f7fd9 100%
+  );
 }
 .effort-control[data-effort="off"] {
   --effort-color: #8b8b93;
@@ -2909,27 +3165,30 @@ body.vscode-high-contrast .empty-logo {
   padding: 0 5px;
   appearance: none;
   -webkit-appearance: none;
-  background: linear-gradient(
-    to right,
+  /* Two-layer track: base keeps the full continuous gradient band
+     (dark = near-black → blue → violet), the overlay is a firm solid fill
+     that extends from the left edge to the thumb — the same "fill follows
+     the thumb" technique daisyUI paints via box-shadow. The fill is a real
+     colour (not a faint blend) so the progress reads at a glance, and it
+     updates instantly while dragging. */
+  background:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--effort-color) 85%, var(--vscode-editor-background)) 0%,
+      var(--effort-color) 100%
+    )
+    0 var(--effort-progress),
     color-mix(
-        in srgb,
-        var(--effort-color) 74%,
-        var(--vscode-editorWidget-background)
-      )
-      0 var(--effort-progress),
-    color-mix(
-        in srgb,
-        var(--effort-color) 13%,
-        var(--vscode-editorWidget-background)
-      )
-      var(--effort-progress) 100%
-  );
+      in srgb,
+      var(--effort-color) 16%,
+      var(--vscode-editor-background)
+    );
   border: 1px solid
     color-mix(in srgb, var(--effort-color) 34%, var(--vscode-widget-border));
   border-radius: 999px;
   cursor: grab;
   transition:
-    --effort-progress 240ms cubic-bezier(0.3, 0.9, 0.3, 1),
+    --effort-progress 220ms cubic-bezier(0.3, 0.9, 0.3, 1),
     background-color 160ms ease,
     border-color 160ms ease;
 }
@@ -2985,14 +3244,58 @@ body.vscode-high-contrast .empty-logo {
   width: 14px;
   height: 14px;
   pointer-events: none;
+  /* Pure white knob in every theme (dsh-reasoning-effort baseline). */
   background: #fff;
   border: 2px solid color-mix(in srgb, var(--effort-color) 88%, #fff);
   border-radius: 50%;
-  box-shadow: 0 1px 5px color-mix(in srgb, #000 42%, transparent);
+  box-shadow:
+    0 0 0 3px
+      color-mix(in srgb, var(--effort-color) 26%, transparent),
+    0 1px 5px color-mix(in srgb, #000 42%, transparent);
   transition:
     left 240ms cubic-bezier(0.3, 0.9, 0.3, 1),
     border-color 160ms ease,
     transform 120ms ease;
+}
+/* Left-side radiation/waves/trail: a clipped glow layer riding behind the
+   knob, emitting only to the left (dsh-reasoning-effort signature effect).
+   The clip is a hard mask ending at the thumb line so nothing crosses it. */
+.effort-thumb::before {
+  content: "";
+  position: absolute;
+  right: 50%;
+  top: 50%;
+  width: 96px;
+  height: 22px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse closest-side,
+    color-mix(in srgb, var(--effort-color) 38%, transparent) 0%,
+    color-mix(in srgb, var(--effort-color) 22%, transparent) 60%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(to left, #000 0%, transparent 100%);
+  mask-image: linear-gradient(to left, #000 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.effort-slider-row:hover .effort-thumb::before,
+.effort-control.dragging .effort-thumb::before {
+  opacity: 1;
+  animation: effort-radiate 1.6s ease-out infinite;
+}
+@keyframes effort-radiate {
+  0%,
+  100% {
+    transform: translateY(-50%) scaleX(0.85);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-50%) scaleX(1.08);
+    opacity: 1;
+  }
 }
 .effort-slider-row:hover .effort-thumb {
   transform: scale(1.08);
@@ -3051,17 +3354,17 @@ body.vscode-high-contrast .empty-logo {
   );
   border-radius: 50%;
 }
-.effort-tick.active {
-  color: var(--effort-color);
-}
-/* Passed dots ride on the filled portion of the track, so they flip to white
-   to stay visible against the effort colour. */
+/* Passed dots ride on the gradient track, so they flip to white to stay
+   visible against the effort colour. */
 .effort-tick.active::before {
   background: color-mix(in srgb, #fff 92%, transparent);
+  box-shadow: 0 0 4px
+    color-mix(in srgb, var(--effort-color) 60%, transparent);
 }
 .effort-tick[aria-current="true"] {
   color: var(--vscode-foreground);
   font-weight: 600;
+}
 }
 .effort-tick[aria-current="true"]::before {
   opacity: 0;
@@ -3160,8 +3463,13 @@ body.vscode-high-contrast .empty-logo {
 }
 @media (prefers-reduced-motion: reduce) {
   .effort-flourish,
-  .effort-flourish::before {
+  .effort-flourish::before,
+  .effort-thumb::before {
     animation-duration: 1ms;
+  }
+  .effort-thumb::before {
+    animation: none;
+    opacity: 0.55;
   }
 }
 .editor-context-list {
@@ -3712,8 +4020,8 @@ body.vscode-high-contrast .empty-logo {
   opacity: 0.5;
   cursor: default;
 }
-/* Safety gate shown before danger-full-access applies, mirroring the Codex
-   and official Web UI confirmation. */
+/* Safety gate shown before danger-full-access applies, mirroring the
+   official Web UI confirmation. */
 .permission-confirm {
   position: absolute;
   left: 0;
@@ -4371,11 +4679,28 @@ body.vscode-high-contrast .empty-logo {
 }
 
 /* Slim overlay-style scrollbars that follow the VS Code theme instead of the
-   OS default. On macOS Chromium renders native overlay scrollbars anyway; on
-   Windows this keeps the bar thin and pill-shaped so it reads like macOS. */
+   OS default. Two layers:
+   - standard `scrollbar-width` / `scrollbar-color` (Chromium 121+, incl.
+     macOS Electron): wins where supported and also covers the macOS overlay
+     scrollbar path that ignores the -webkit rules;
+   - `::-webkit-scrollbar` tail for older Chromium: keeps the bar thin and
+     pill-shaped so it reads like macOS there as well.
+   The thumb stays near-invisible until the user scrolls or hovers, exactly
+   like the editor's own scrollbars, so it never competes with the content. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.34)) transparent;
+}
+/* Only the real scroll container reserves a gutter: a global `stable` would
+   reserve one on every element, jittering layout and creating phantom gaps.
+   The chat panel always has a scrollbar (content can overflow at any width),
+   so the gutter is stable there without shifting body/workbench. */
+.chat {
+  scrollbar-gutter: stable;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
@@ -4384,9 +4709,9 @@ body.vscode-high-contrast .empty-logo {
 ::-webkit-scrollbar-thumb {
   background: var(
     --vscode-scrollbarSlider-background,
-    rgba(127, 127, 127, 0.4)
+    rgba(127, 127, 127, 0.34)
   );
-  border-radius: 3px;
+  border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(
@@ -4405,7 +4730,8 @@ body.vscode-high-contrast .empty-logo {
 
 .session-stats {
   color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: 10px;
+  opacity: 0.8;
   margin-left: 6px;
   white-space: nowrap;
   overflow: hidden;
@@ -4418,7 +4744,9 @@ body.vscode-high-contrast .empty-logo {
   margin-left: auto;
   padding-left: 8px;
   color: var(--vscode-descriptionForeground);
-  font-size: 11px;
+  font-size: 10px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

@@ -56,15 +56,15 @@ export function isAtBottom(element: HTMLElement): boolean {
  * animation that fights the reader's scrollbar drag.
  */
 export function scrollConversationToBottom(): void {
-  const conversation = elements.conversation
-  const previous = conversation.style.scrollBehavior
-  conversation.style.scrollBehavior = 'auto'
-  conversation.scrollTop = conversation.scrollHeight
-  conversation.style.scrollBehavior = previous
+  const chat = elements.chat
+  const previous = chat.style.scrollBehavior
+  chat.style.scrollBehavior = 'auto'
+  chat.scrollTop = chat.scrollHeight
+  chat.style.scrollBehavior = previous
   // Re-assert once layout settles in case late content (images, markdown)
   // grows the transcript after the jump.
   window.requestAnimationFrame(() => {
-    conversation.scrollTop = conversation.scrollHeight
+    chat.scrollTop = chat.scrollHeight
   })
 }
 
@@ -74,11 +74,11 @@ export function scrollConversationToBottom(): void {
  * {@link scrollConversationToBottom}, without the extra RAF re-assert.
  */
 export function pinConversationToBottom(): void {
-  const conversation = elements.conversation
-  const previous = conversation.style.scrollBehavior
-  conversation.style.scrollBehavior = 'auto'
-  conversation.scrollTop = conversation.scrollHeight
-  conversation.style.scrollBehavior = previous
+  const chat = elements.chat
+  const previous = chat.style.scrollBehavior
+  chat.style.scrollBehavior = 'auto'
+  chat.scrollTop = chat.scrollHeight
+  chat.style.scrollBehavior = previous
 }
 
 export function formatRelativeTime(time: number): string {

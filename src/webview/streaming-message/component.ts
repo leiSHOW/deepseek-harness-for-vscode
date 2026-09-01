@@ -1,6 +1,7 @@
 import type { ChatBlock, ChatItem } from '../../domain/workbench-state.js'
 import { createSequentialActivityDots } from '../activity-indicator/component.js'
-import { nextStreamText } from './model.js'
+import { applyIcon, icon } from '../icons.js'
+import { nextStreamText, shouldRebuildStreamFrame, STREAMING_REBUILD_CHAR_THRESHOLD, STREAMING_REBUILD_MIN_INTERVAL_MS } from './model.js'
 
 type StreamingMessage = Pick<ChatItem, 'status' | 'blocks'>
 
@@ -14,6 +15,10 @@ interface StreamState {
   labelTokens?: number
   /** Whether the reasoning content keeps auto-scrolling to its own bottom. */
   follow?: boolean
+  /** Text handed to the last full markdown rebuild ('' before the first). */
+  lastRendered: string
+  /** Timestamp of the last full markdown rebuild. */
+  lastRenderAt: number
 }
 
 /** Rough live token estimate for streamed reasoning text (≈4 chars/token). */
@@ -67,8 +72,11 @@ export class StreamingMessageComponent {
       const details = this.options.document.createElement('details')
       details.className = `reasoning-block${running ? ' running' : ''}`
       details.dataset.disclosureKey = `reasoning-${index}`
-      details.dataset.autoOpen = running ? 'true' : 'false'
-      details.open = running
+      // Like the DSH Web UI, the thinking block stays collapsed by default;
+      // the summary row carries a one-line live preview while it streams, and
+      // the reader expands it explicitly if they want the full reasoning.
+      details.dataset.autoOpen = 'false'
+      details.open = false
       // A collapse by the reader overrides the streaming auto-open. The toggle
       // is tracked manually (the summary click arrives before `open` flips, so
       // "not open" alone cannot distinguish "was open" from "was closed").
@@ -98,19 +106,10 @@ export class StreamingMessageComponent {
       const label = rendered.querySelector<HTMLElement>('.reasoning-label')
       if (content === null || label === null) return false
       rendered.classList.toggle('running', running)
-      // While reasoning streams, each frame expands the card so the live
-      // thought stays visible. Once the reader collapses it, their intent
-      // wins: every following frame would re-open it, so remember the closed
-      // state until the block finishes and a full re-render restores the
-      // "finished" disclosure conventions.
-      const collapsedByReader = rendered.dataset.readerCollapsed === 'true'
-      if (collapsedByReader) {
-        rendered.open = false
-        rendered.dataset.autoOpen = 'false'
-      } else {
-        rendered.dataset.autoOpen = running ? 'true' : 'false'
-        rendered.open = running
-      }
+      // The disclosure stays whatever the reader set it to: no per-frame
+      // force-close (which made an explicit expand snap back instantly).
+      // Initial render starts collapsed; the summary row keeps the live
+      // one-line preview while streaming.
       label.textContent = this.labelText(running, block)
       const summary = rendered.querySelector<HTMLElement>('.reasoning-summary')
       if (summary !== null) {
@@ -144,7 +143,7 @@ export class StreamingMessageComponent {
     let state = this.streams.get(target)
     if (state === undefined) {
       target.textContent = ''
-      state = { rendered: '', target: text, frame: undefined, follow: true, ...(tokens === undefined ? {} : { tokens }) }
+      state = { rendered: '', target: text, frame: undefined, follow: true, lastRendered: '', lastRenderAt: 0, ...(tokens === undefined ? {} : { tokens }) }
       this.streams.set(target, state)
       // The reasoning content auto-follows its own stream, but an intentional
       // scroll-up inside the card must win: once the reader moves off the
@@ -172,9 +171,23 @@ export class StreamingMessageComponent {
       state.frame = undefined
       if (!target.isConnected) return
       state.rendered = nextStreamText(state.rendered, state.target)
-      // Render each partial frame as Markdown so formatting appears while streaming,
-      // instead of showing raw Markdown source until the block completes.
-      this.options.renderMarkdown(target, state.rendered)
+      // Full-block markdown rebuilds (markdown-it + DOMPurify + innerHTML) are
+      // expensive and scale with the accumulated text. Rebuilding on every rAF
+      // frame makes long replies janky on the webview's main thread. The first
+      // visible frame renders immediately; subsequent frames are throttled by
+      // accumulated text and elapsed time, and the final frame always rebuilds
+      // so the stream lands exactly on its target.
+      const now = Date.now()
+      if (shouldRebuildStreamFrame(
+        { rendered: state.rendered, target: state.target, lastRendered: state.lastRendered, lastRenderAt: state.lastRenderAt },
+        now,
+        STREAMING_REBUILD_MIN_INTERVAL_MS,
+        STREAMING_REBUILD_CHAR_THRESHOLD,
+      )) {
+        this.options.renderMarkdown(target, state.rendered)
+        state.lastRendered = state.rendered
+        state.lastRenderAt = now
+      }
       if (target.classList.contains('reasoning-content')) {
         if (state.follow !== false) target.scrollTop = target.scrollHeight
         this.updateStreamingLabel(target, state)
@@ -213,15 +226,23 @@ export class StreamingMessageComponent {
     return preview
   }
 
+  /**
+   * One-line live preview of the *newest* thought text. The DSH reasoning
+   * stream usually opens with a fixed lead-in (the user message echo) that
+   * never changes, so previewing the first line looks frozen; taking the tail
+   * makes the row visibly stream with every new thought fragment.
+   */
   private reasoningPreviewText(text: string): string {
-    const first = text.split(/\r?\n/u).map((line) => line.trim()).find((line) => line !== '') ?? ''
-    return first.length > 80 ? `${first.slice(0, 80)}…` : first
+    const single = text.replace(/\s+/g, ' ').trim()
+    if (single === '') return ''
+    const MAX = 100
+    return single.length > MAX ? `…${single.slice(-MAX)}` : single
   }
 
   private reasoningDot(): HTMLElement {
     const dot = this.options.document.createElement('span')
     dot.className = 'reasoning-dot'
-    dot.setAttribute('aria-hidden', 'true')
+    applyIcon(dot, icon('atom', 12))
     return dot
   }
 

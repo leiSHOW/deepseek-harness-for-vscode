@@ -1,5 +1,27 @@
 import DOMPurify, { type Config } from 'dompurify'
 import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import csharp from 'highlight.js/lib/languages/csharp'
+import css from 'highlight.js/lib/languages/css'
+import diff from 'highlight.js/lib/languages/diff'
+import go from 'highlight.js/lib/languages/go'
+import ini from 'highlight.js/lib/languages/ini'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import kotlin from 'highlight.js/lib/languages/kotlin'
+import less from 'highlight.js/lib/languages/less'
+import makefile from 'highlight.js/lib/languages/makefile'
+import languageMarkdown from 'highlight.js/lib/languages/markdown'
+import powershell from 'highlight.js/lib/languages/powershell'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import shell from 'highlight.js/lib/languages/shell'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import {
   clearFileReferenceLedger,
   fileExtension,
@@ -17,12 +39,71 @@ import {
   type FileReference,
 } from './file-reference.js'
 
+// Curated language subset: common code languages plus config formats the
+// agent actually writes. Keeping this list small keeps the webview bundle
+// light (full hljs is ~200+ language files) and startup snappy.
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('csharp', csharp)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('diff', diff)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('ini', ini)
+hljs.registerLanguage('java', java)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('kotlin', kotlin)
+hljs.registerLanguage('less', less)
+hljs.registerLanguage('makefile', makefile)
+hljs.registerLanguage('markdown', languageMarkdown)
+hljs.registerLanguage('powershell', powershell)
+hljs.registerLanguage('ps1', powershell)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('py', python)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('shell', shell)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('ts', typescript)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('yaml', yaml)
+
+/** Aliases that need a different registered name. */
+const HLJS_ALIASES: Readonly<Record<string, string>> = {
+  sh: 'bash',
+  zsh: 'bash',
+  cmd: 'powershell',
+  pwsh: 'powershell',
+  ps: 'powershell',
+  javascript: 'javascript',
+  tsx: 'typescript',
+  jsx: 'javascript',
+  html: 'xml',
+  vue: 'xml',
+  svg: 'xml',
+  toml: 'ini',
+  dockerfile: 'bash',
+  text: '',
+}
+
 const markdown = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true,
   typographer: false,
   maxNesting: 40,
+  highlight: (code, language) => {
+    const name = HLJS_ALIASES[language] ?? language
+    if (name !== '') {
+      try {
+        const result = hljs.highlight(code, { language: name, ignoreIllegals: true })
+        return `<pre><code class="hljs language-${escapeAttr(language)}">${result.value}</code></pre>`
+      } catch {
+        // Unknown language: fall through to the plain escaper below.
+      }
+    }
+    return `<pre><code class="language-${escapeAttr(language)}">${escapeHtml(code)}</code></pre>`
+  },
 })
 
 // Remote Markdown images are intentionally disabled: arbitrary image URLs
@@ -32,10 +113,22 @@ markdown.disable('image')
 const SANITIZE_OPTIONS: Config = {
   ALLOWED_TAGS: [
     'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'hr', 'li', 'ol', 'p', 'pre', 's', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+    'hr', 'li', 'ol', 'p', 'pre', 's', 'span', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
   ],
   ALLOWED_ATTR: ['class', 'href', 'title'],
   RETURN_TRUSTED_TYPE: false,
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '')
 }
 
 const renderedSources = new WeakMap<HTMLElement, string>()
@@ -93,6 +186,7 @@ export interface MarkdownActions {
   readonly copyLabel: string
   readonly copiedLabel: string
   readonly copyCodeLabel: (language: string) => string
+  readonly expandCodeLabel: (hiddenLines: number) => string
 }
 
 /** Installs the host-bound validator; call once when the webview boots. */
@@ -309,6 +403,12 @@ function decorateFileLink(element: HTMLElement, reference: FileReference, action
   })
 }
 
+/** Long code blocks collapse to a preview and expand on demand (diff-editor
+ * diff style): a faded fade + "Show N more lines" affordance instead of an
+ * inner scrollbar fighting the outer tool-detail scroller. */
+const CODE_COLLAPSE_MIN_LINES = 20
+const CODE_COLLAPSE_VISIBLE_LINES = 14
+
 function decorateCodeBlock(pre: HTMLPreElement, actions: MarkdownActions): void {
   const code = pre.querySelector(':scope > code')
   if (code === null) return
@@ -341,6 +441,27 @@ function decorateCodeBlock(pre: HTMLPreElement, actions: MarkdownActions): void 
   header.append(label, copy)
   pre.replaceWith(wrapper)
   wrapper.append(header, pre)
+
+  // Collapse long blocks. `textContent` is used for the line count because
+  // browser line-breaking inside nested inline elements is unreliable.
+  // While the block is still streaming (.streaming-content), it is left fully
+  // expanded so the reader watches the code grow and the outer transcript
+  // scroll follows the newest lines; the fold + "Show N more lines" only apply
+  // once the turn lands (matching "collapsed by default" for finished blocks).
+  if (pre.closest('.streaming-content') !== null) return
+  const lineCount = (code.textContent ?? '').split('\n').length
+  if (lineCount <= CODE_COLLAPSE_MIN_LINES) return
+  pre.classList.add('collapsed')
+  const expand = document.createElement('button')
+  expand.type = 'button'
+  expand.className = 'md-codeblock-expand'
+  expand.textContent = actions.expandCodeLabel(Math.max(0, lineCount - CODE_COLLAPSE_VISIBLE_LINES))
+  expand.setAttribute('aria-expanded', 'false')
+  expand.addEventListener('click', () => {
+    pre.classList.remove('collapsed')
+    expand.remove()
+  })
+  wrapper.append(pre, expand)
 }
 
 function safeExternalUrl(raw: string): string | undefined {

@@ -194,7 +194,7 @@ function renderPermissionOptions(permissions: PermissionView): void {
     } else {
       button.addEventListener('click', () => {
         // Full access bypasses every prompt; require an explicit confirmation
-        // first, like the Codex picker and the official Web UI do.
+        // first, like the official Web UI does.
         if (item.id === FULL_ACCESS_PERMISSION_ID && permissions.currentValue !== FULL_ACCESS_PERMISSION_ID) {
           closePermissionPopup()
           openPermissionConfirm()

@@ -44,11 +44,11 @@ export function cancelStickToBottom(): void {
  * that fights the reader's scrollbar.
  */
 function setConversationScroll(top: number): void {
-  const conversation = elements.conversation
-  const previous = conversation.style.scrollBehavior
-  conversation.style.scrollBehavior = 'auto'
-  conversation.scrollTop = top
-  conversation.style.scrollBehavior = previous
+  const chat = elements.chat
+  const previous = chat.style.scrollBehavior
+  chat.style.scrollBehavior = 'auto'
+  chat.scrollTop = top
+  chat.style.scrollBehavior = previous
 }
 
 export function renderMessages(active: ActiveSessionView | undefined): void {
@@ -73,10 +73,10 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // transcript asynchronously after render, so a pre-render probe here would
   // otherwise misclassify "user is reading an older message" as "at bottom"
   // and yank the view down to the newest bubble.
-  const wasNearBottom = isNearBottom(elements.conversation)
+  const wasNearBottom = isNearBottom(elements.chat)
   const shouldStick = stickToBottomOnLoad || sessionChanged || (followStream && wasNearBottom)
-  const previousTop = elements.conversation.scrollTop
-  const previousHeight = elements.conversation.scrollHeight
+  const previousTop = elements.chat.scrollTop
+  const previousHeight = elements.chat.scrollHeight
   const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId
   const conclusionId = latestConclusionId(messages)
   // The step timeline spine only exists while a conversation is in flight;
@@ -140,7 +140,7 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
     scrollConversationToBottom()
   } else if (prepended) {
     // Anchor the pre-render position so history prepends don't shift the view.
-    setConversationScroll(previousTop + elements.conversation.scrollHeight - previousHeight)
+    setConversationScroll(previousTop + elements.chat.scrollHeight - previousHeight)
   } else if (!stickToBottomOnLoad) {
     // Streaming below the viewport must not steal the reader's position, but
     // a freshly opened session must keep pinning to the bottom until its
@@ -161,7 +161,7 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   if (stickToBottomOnLoad && messages.length > 0) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (stickToBottomOnLoad && isNearBottom(elements.conversation)) setStickToBottomOnLoad(false)
+        if (stickToBottomOnLoad && isNearBottom(elements.chat)) setStickToBottomOnLoad(false)
       })
     })
   }
@@ -299,7 +299,11 @@ function renderTool(item: ChatItem): HTMLElement {
   const isResultOnly = String(item.id || '').endsWith('-result')
   const statusIcon = isResultOnly
     ? (item.status === 'error' ? icon('cancel', 12) : icon('check', 12))
-    : icon(toolIcon(item.title), 12)
+    : item.status === 'running'
+      // An in-flight call shows a spinning arc instead of the tool glyph:
+      // the reader instantly sees the tool is still executing.
+      ? icon('spinner', 13)
+      : icon(toolIcon(item.title), 13)
   const status = node('span', 'tool-status')
   applyIcon(status, statusIcon)
   summary.append(status, node('span', 'tool-title', toolDisplayName(item.title || t('tool'))))
@@ -310,13 +314,13 @@ function renderTool(item: ChatItem): HTMLElement {
   if (item.detail && item.detail.trim() !== '') {
     details.append(toolSectionLabel(t('toolArguments'), estimateReasoningTokens(item.detail)))
     const detail = node('div', 'tool-detail')
-    renderToolDetail(detail, item.detail)
+    renderToolDetail(detail, item.detail, item.title)
     details.append(detail)
   }
   if (item.result && item.result.trim() !== '') {
     details.append(toolSectionLabel(t('toolResult'), estimateReasoningTokens(item.result)))
     const result = node('div', 'tool-detail')
-    renderToolDetail(result, item.result)
+    renderToolDetail(result, item.result, item.title)
     details.append(result)
   }
   container.append(details)
@@ -432,15 +436,16 @@ function toolDisplayName(name: string | undefined): string {
 const TOOL_ICONS = new Map<string, IconName>([
   // Shell / command execution.
   ['bash', 'terminal'], ['shell', 'terminal'], ['terminal', 'terminal'], ['sh', 'terminal'], ['zsh', 'terminal'],
-  ['powershell', 'terminal'], ['exec', 'terminal'], ['exec_command', 'terminal'], ['run_command', 'terminal'],
-  ['run', 'terminal'], ['command', 'terminal'],
+  ['powershell', 'terminal'], ['pwsh', 'terminal'], ['cmd', 'terminal'], ['bat', 'terminal'],
+  ['exec', 'terminal'], ['exec_command', 'terminal'], ['run_command', 'terminal'],
+  ['run', 'terminal'], ['command', 'terminal'], ['script', 'terminal'],
   // File editing.
   ['edit', 'edit'], ['str_replace_editor', 'edit'], ['str_replace', 'edit'], ['apply_patch', 'edit'],
   ['edit_file', 'edit'], ['replace', 'edit'], ['rewrite', 'edit'], ['write', 'edit'], ['create', 'edit'],
   ['create_file', 'edit'], ['append', 'edit'], ['append_file', 'edit'],
   // File reading / browsing.
-  ['read', 'read'], ['read_file', 'read'], ['view', 'read'], ['view_file', 'read'], ['cat', 'read'],
-  ['ls', 'read'], ['list', 'read'], ['inspect', 'read'], ['stat', 'read'],
+  ['read', 'doc'], ['read_file', 'doc'], ['view', 'doc'], ['view_file', 'doc'], ['cat', 'doc'],
+  ['ls', 'doc'], ['list', 'doc'], ['inspect', 'doc'], ['stat', 'doc'],
   // Search.
   ['glob', 'search'], ['grep', 'search'], ['search', 'search'], ['find', 'search'], ['rg', 'search'],
   ['ripgrep', 'search'], ['find_files', 'search'], ['search_files', 'search'],
@@ -465,7 +470,7 @@ const TOOL_ICONS = new Map<string, IconName>([
   ['read_image', 'image'], ['vision_describe', 'image'], ['vision_ocr', 'image'], ['screenshot', 'image'],
   ['image', 'image'], ['ocr', 'image'],
   // Skills.
-  ['skill', 'sparkle'], ['skills', 'sparkle'],
+  ['skill', 'skillDoc'], ['skills', 'skillDoc'],
 ])
 
 /** Best-effort SVG icon per tool name; dev_* helpers and unknown tools get a generic tool. */
@@ -475,11 +480,17 @@ function toolIcon(name: string | undefined): IconName {
   return TOOL_ICONS.get(normalized) ?? 'tool'
 }
 
-function toolPreviewText(detail: string): string {
+function toolPreviewText(detail: string, toolName?: string): string {
   const trimmed = detail.trim()
+  const named = toolName === undefined ? undefined : String(toolName).toLowerCase()
   if (isJsonText(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>
+      // Bash-style calls preview the command line, edits the file path.
+      if (isShellTool(named)) {
+        const command = stringField(parsed, 'command', 'cmd', 'code', 'script')
+        if (command !== undefined) return summarizeLine(command)
+      }
       if (typeof parsed.description === 'string' && parsed.description.trim() !== '') {
         return summarizeLine(parsed.description)
       }
@@ -497,23 +508,55 @@ function toolPreviewText(detail: string): string {
   return summarizeLine(detail)
 }
 
+function isShellTool(named: string | undefined): boolean {
+  return named !== undefined && (named === 'bash' || named === 'shell' || named === 'exec'
+    || named === 'exec_command' || named === 'run_command' || named === 'run'
+    || named === 'command' || named === 'powershell' || named === 'pwsh' || named === 'terminal'
+    || named === 'sh' || named === 'zsh' || named === 'cmd' || named === 'bat' || named === 'script')
+}
+
 function summarizeLine(text: string): string {
   const single = text.replace(/\s+/g, ' ').trim()
   return single.length > 90 ? `${single.slice(0, 90)}…` : single
 }
 
-function renderToolDetail(target: HTMLElement, detail: string): void {
+function renderToolDetail(target: HTMLElement, detail: string, toolName?: string): void {
   const trimmed = detail.trim()
   let source: string | undefined
+  // Known argument shapes render as human-readable payloads, not raw JSON:
+  // edit calls become a unified diff of old→new, file writes show the path
+  // and content, and shell calls show the command line.
+  const named = toolName === undefined ? undefined : String(toolName).toLowerCase()
   if (isJsonText(trimmed)) {
+    let args: unknown
     try {
-      source = `\`\`\`json\n${JSON.stringify(JSON.parse(trimmed), null, 2)}\n\`\`\``
+      args = JSON.parse(trimmed)
     } catch {
-      source = undefined
+      args = undefined
+    }
+    if (args !== undefined) {
+      const rendered = renderToolArguments(named, args)
+      if (rendered !== undefined) {
+        // renderToolArguments either emits a DOM-friendly fragment or plain
+        // markdown; the diff variant is built as real elements so +/− lines
+        // can carry diff colors without clashing with the HTML sanitizer.
+        if (rendered instanceof DocumentFragment) {
+          target.classList.add('tool-diff-view')
+          target.append(rendered)
+          return
+        }
+        target.classList.add('markdown-body')
+        renderMarkdown(target, rendered, markdownActions)
+        return
+      }
+      // Fall back to pretty JSON for unknown shapes.
+      source = `\`\`\`json\n${JSON.stringify(args, null, 2)}\n\`\`\``
     }
   } else if (looksLikeDiff(trimmed)) {
     source = `\`\`\`diff\n${detail}\n\`\`\``
-  } else if (looksLikeCode(trimmed)) {
+  } else if (looksLikeCode(trimmed) || trimmed.includes('\n')) {
+    // Multi-line tool results (bash output, file contents, patch text) are
+    // payloads, not prose: always render them as a code block.
     source = `\`\`\`\n${detail}\n\`\`\``
   }
   if (source === undefined) {
@@ -522,6 +565,97 @@ function renderToolDetail(target: HTMLElement, detail: string): void {
   }
   target.classList.add('markdown-body')
   renderMarkdown(target, source, markdownActions)
+}
+
+/**
+ * Renders known tool-argument shapes into a readable representation instead of
+ * raw JSON. Edit calls return a DOM fragment of colored diff lines; other
+ * recognized shapes return markdown source. Returns undefined when the shape
+ * is not recognized so the caller can fall back to pretty JSON.
+ */
+function renderToolArguments(named: string | undefined, args: unknown): DocumentFragment | string | undefined {
+  if (!isRecord(args)) return undefined
+  // Edit-family tools: a unified diff of the old → new strings is far more
+  // readable than the argument JSON, and matches the edited-files card.
+  if (named !== undefined && (named === 'edit' || named === 'str_replace' || named === 'str_replace_editor' || named === 'apply_patch')) {
+    const path = stringField(args, 'file_path', 'path', 'file')
+    const oldText = stringField(args, 'old_string', 'old_str')
+    const newText = stringField(args, 'new_string', 'new_str')
+    if (oldText !== undefined && newText !== undefined) {
+      return diffFragment(path, oldText, newText)
+    }
+    const content = stringField(args, 'file_text', 'content')
+    if (path !== undefined && content !== undefined) {
+      return `**${path}**\n\n\`\`\`\n${content}\n\`\`\``
+    }
+  }
+  // Shell-family tools: show the command line.
+  if (isShellTool(named)) {
+    const command = stringField(args, 'command', 'cmd', 'code', 'script')
+    if (command !== undefined) {
+      return `\`\`\`bash\n${command}\n\`\`\``
+    }
+  }
+  // Read-family: show the path and any start/end pointers.
+  if (named !== undefined && (named === 'read' || named === 'read_file' || named === 'cat' || named === 'view' || named === 'view_file' || named === 'ls' || named === 'glob')) {
+    const path = stringField(args, 'file_path', 'path', 'file', 'pattern', 'directory', 'cwd')
+    if (path !== undefined) {
+      return `**${path}**`
+    }
+  }
+  // Search-family: query and path.
+  if (named !== undefined && (named === 'grep' || named === 'search' || named === 'find' || named === 'rg' || named === 'search_files')) {
+    const query = stringField(args, 'pattern', 'query', 'term', 'command')
+    const path = stringField(args, 'path', 'cwd', 'directory')
+    if (query !== undefined) {
+      const header = path === undefined ? '' : ` **in** ${path}`
+      return `\`\`\`bash\n${query}${header}\n\`\`\``
+    }
+  }
+  return undefined
+}
+
+/** A diff-shaped DOM fragment: path header plus colored +/- lines. */
+function diffFragment(path: string | undefined, oldText: string, newText: string): DocumentFragment {
+  const fragment = document.createDocumentFragment()
+  if (path !== undefined) {
+    const header = document.createElement('strong')
+    header.className = 'tool-diff-path'
+    header.textContent = path
+    fragment.append(header)
+  }
+  const pre = document.createElement('pre')
+  pre.className = 'tool-diff'
+  const code = document.createElement('code')
+  const oldLines = oldText === '' ? [] : oldText.split('\n')
+  const newLines = newText === '' ? [] : newText.split('\n')
+  for (const line of oldLines) {
+    const span = document.createElement('span')
+    span.className = 'diff-del'
+    span.textContent = `− ${line}`
+    code.append(span, '\n')
+  }
+  for (const line of newLines) {
+    const span = document.createElement('span')
+    span.className = 'diff-add'
+    span.textContent = `+ ${line}`
+    code.append(span, '\n')
+  }
+  pre.append(code)
+  fragment.append(pre)
+  return fragment
+}
+
+function stringField(args: Record<string, unknown>, ...keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key]
+    if (typeof value === 'string') return value
+  }
+  return undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function isJsonText(text: string): boolean {

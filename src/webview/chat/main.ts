@@ -46,7 +46,7 @@ elements.conversation.addEventListener('pointerdown', () => setInteractionArmed(
 elements.conversation.addEventListener('wheel', (event) => {
   if (event.deltaY < 0) {
     setFollowStream(false)
-  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.conversation)) {
+  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.chat)) {
     setFollowStream(true)
   }
 }, { passive: true })
@@ -62,8 +62,8 @@ elements.conversation.addEventListener('touchmove', (event) => {
   if (y > touchAnchorY) setFollowStream(false)
   touchAnchorY = y
 }, { passive: true })
-elements.conversation.addEventListener('scroll', () => {
-  if (isAtBottom(elements.conversation)) {
+elements.chat.addEventListener('scroll', () => {
+  if (isAtBottom(elements.chat)) {
     setFollowStream(true)
   } else if (followStream) {
     // A scroll that left the bottom while following can only be the reader
@@ -226,8 +226,8 @@ elements.prompt.addEventListener('blur', () => {
 // A user scrolling away from the newest message (for example to re-read a
 // file reference inside an earlier question) must release the load pin;
 // otherwise the next catalog push would yank the conversation back down.
-elements.conversation.addEventListener('scroll', () => {
-  if (!isNearBottom(elements.conversation)) cancelStickToBottom()
+elements.chat.addEventListener('scroll', () => {
+  if (!isNearBottom(elements.chat)) cancelStickToBottom()
 }, { passive: true })
 document.addEventListener('paste', (event) => {
   const target = event.target

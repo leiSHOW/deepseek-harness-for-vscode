@@ -229,7 +229,11 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.effortDragging = true
     this.effortControl.classList.add('dragging')
     const document = this.options.document
-    const move = (event: PointerEvent) => {
+    let lastTier: number | undefined
+    let pending: PointerEvent | undefined
+    let frame: number | undefined
+    const apply = (event: PointerEvent): void => {
+      pending = undefined
       const rect = row.getBoundingClientRect()
       if (rect.width <= 24) return
       // Thumb centre travels from 12px to width - 12px (5px padding plus
@@ -237,12 +241,31 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left - 12) / (rect.width - 24)))
       this.effortControl.style.setProperty('--effort-position', String(fraction))
       this.effortControl.style.setProperty('--effort-progress', `${fraction * 100}%`)
-      // Commit the nearest detent to the store and refresh only the label /
-      // tone / tick highlights — no full panel re-render per pointermove, so
-      // the knob stays glued to the cursor even on Windows Edge where the
-      // native input storm used to re-render the whole panel.
+      // A tier owns a continuous zone of the track (nearest detent), so the
+      // drag follows the cursor without snapping between discrete points;
+      // the visual stays continuous and only the committed tier changes.
       const maxIndex = Number(this.effortSlider.max)
-      this.syncEffortDrag(Math.round(fraction * maxIndex))
+      const tier = Math.round(fraction * maxIndex)
+      this.syncEffortDrag(tier)
+      // Pop the judgement flourish the moment the drag crosses into another
+      // tier — continuous dragging feels alive, not click-only.
+      if (lastTier !== undefined && tier !== lastTier) {
+        const snapshot = this.store.snapshot()
+        if (snapshot !== undefined) this.flourish(snapshot.effortTone, snapshot.effort.label)
+      }
+      lastTier = tier
+    }
+    const move = (event: PointerEvent): void => {
+      // Coalesce high-frequency pointer events to one move per frame: the drag
+      // stays glued to the cursor but never does more layout work than the
+      // display can paint (Windows Edge pointer floods are the usual culprit).
+      pending = event
+      if (frame === undefined) {
+        frame = requestAnimationFrame(() => {
+          frame = undefined
+          if (pending !== undefined) apply(pending)
+        })
+      }
     }
     const end = () => {
       this.effortDragging = false
@@ -250,6 +273,11 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', end)
       document.removeEventListener('pointercancel', end)
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame)
+        frame = undefined
+      }
+      if (pending !== undefined) apply(pending)
       // Commit the staged tier once, settling onto the detent with the
       // transition re-enabled.
       const snapshot = this.store.snapshot()
@@ -262,7 +290,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     document.addEventListener('pointerup', end)
     document.addEventListener('pointercancel', end)
     // Position at the press point so a plain click still jumps to that tier.
-    move(start)
+    apply(start)
   }
 
   /**

@@ -25,7 +25,8 @@ describe('markdownMarkup', () => {
     expect(html).toContain('<ul>')
     expect(html).toContain('<strong>强调项目</strong>')
     expect(html).toContain('<blockquote>')
-    expect(html).toContain('<code class="language-ts">')
+    // highlight.js adds the `hljs` marker class before the language class.
+    expect(html).toMatch(/<code class="(?:hljs )?language-ts">/)
     expect(html).toContain('<table>')
   })
 
